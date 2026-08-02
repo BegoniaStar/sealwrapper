@@ -10,9 +10,10 @@ import { stageSealpack } from '../../src/stage.ts';
 import { toSarif } from '../../src/sarif.ts';
 import { normalizeScenario, matchTranscriptExpectation } from '../../src/scenario.ts';
 import { publishReleaseFiles, writeReleaseProvenance } from '../../src/release.ts';
-import { loadSealLock } from '../../src/lock.ts';
+import { loadSealLock, renderSealLock } from '../../src/lock.ts';
+import { pinnedTarget } from '../../src/pinned-target.ts';
 
-function config() {
+function config(): any {
   return {
     schemaVersion: 1,
     package: { name: 'P1 fixture', version: '1.0.0', authors: ['Tester'], license: 'MIT', description: '', homepage: '' },
@@ -20,6 +21,11 @@ function config() {
     release: { directory: 'release', checksum: 'sha256', artifactPolicy: { forbiddenPaths: [], forbiddenExtensions: [] } },
     sealpack: { packageId: 'tester/p1-fixture', minSealDice: '1.6.0', contents: { helpdoc: { source: 'content/helpdoc' }, templates: { source: 'content/templates' } }, dependencies: {}, permissions: { network: false, networkHosts: [], acknowledgeUnrestrictedNetwork: false, fileRead: [], fileWrite: [], dangerous: false, httpServer: false, ipc: [] }, readme: 'README.md', assets: [], store: { category: 'rules', icon: '', banner: '', screenshots: [] } },
   };
+}
+
+async function writeLockBackedTarget(root: string) {
+  await writeFile(join(root, 'seal.lock'), renderSealLock(pinnedTarget));
+  return (await loadSealLock(root, process.cwd())).targets['1.6.0'];
 }
 
 test('P1 stages only the fixed helpdoc/templates roots and emits their manifest patterns', async () => {
@@ -118,6 +124,8 @@ test('P2 scenario declarations preserve deterministic clock, seed, users, variab
   assert.equal(matchTranscriptExpectation({ messages: [] }, scenario.expect, [{ ruleId: 'reply.disabled', severity: 'warning' }]), null);
   assert.match(matchTranscriptExpectation({ messages: [] }, scenario.expect, []) ?? '', /diagnostics/);
   assert.throws(() => normalizeScenario({ messages: [], variables: { hp: { nested: true } } }), /string, number, or boolean/);
+  assert.throws(() => normalizeScenario({ clock: 'tomorrow', messages: [] }), /ISO-8601/);
+  assert.throws(() => normalizeScenario({ messages: [{ sequence: '1', text: 'hello' }] }), /sequence/);
 });
 
 test('P2 scenarios declare release gates and explicit cooldown, priority, and seeded-random assertions', () => {
@@ -202,10 +210,29 @@ test('P2 release provenance binds an archive to core and test-only overlay lock 
   const artifact = join(root, 'release', 'fixture@1.0.0.sealpack');
   await mkdir(join(root, 'release'), { recursive: true });
   await writeFile(artifact, 'archive');
-  const manifest = await writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target: { core: { commit: 'base', runtimeVersion: '1.6.0+20260726' }, testOverlay: { id: 'overlay', digest: 'sha256:digest', protocol: 'bridge/v2', capabilitiesSha256: 'sha256:caps' } } });
+  const target = await writeLockBackedTarget(root);
+  const manifest = await writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target });
   const parsed = JSON.parse(await readFile(manifest, 'utf8'));
-  assert.equal(parsed.core.commit, 'base');
+  assert.equal(parsed.core.commit, pinnedTarget.core.commit);
   assert.equal(parsed.overlay.nonProductionEquivalent, false);
+});
+
+test('release provenance refuses a missing or mismatched lock descriptor', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sealwrapper-provenance-lock-gate-'));
+  const artifact = join(root, 'release', 'fixture@1.0.0.sealpack');
+  await mkdir(join(root, 'release'), { recursive: true });
+  await writeFile(artifact, 'archive');
+  await assert.rejects(
+    () => writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target: pinnedTarget }),
+    /seal\.lock is required/i,
+  );
+  const target = await writeLockBackedTarget(root);
+  const tampered = structuredClone(target) as any;
+  tampered.core.commit = '0'.repeat(40);
+  await assert.rejects(
+    () => writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target: tampered }),
+    /trust verification failed|does not match the complete seal\.lock descriptor|core\.commit/i,
+  );
 });
 
 test('P2 can attach a reproducible Ed25519 release signature without placing a private key in the artifact', async () => {
@@ -216,7 +243,8 @@ test('P2 can attach a reproducible Ed25519 release signature without placing a p
   await mkdir(join(root, 'release'), { recursive: true });
   await writeFile(artifact, 'archive');
   await writeFile(signingKey, pair.privateKey.export({ format: 'pem', type: 'pkcs8' }));
-  const manifest = await writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target: { ...structuredClone(config()), core: { source: 'https://example.invalid/core', commit: 'base', runtimeVersion: '1.6.0+20260726', sourceDeclaredVersion: '1.5.1-dev', releaseArtifactSha256: 'sha256:release' }, testOverlay: { id: 'overlay', digest: 'sha256:digest', protocol: 'bridge/v2', capabilitiesSha256: 'sha256:caps', patches: [] }, trust: { activeKeyId: 'overlay-key' } }, signingKeyPath: signingKey, signingKeyId: 'fixture-release-key' });
+  const target = await writeLockBackedTarget(root);
+  const manifest = await writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target, signingKeyPath: signingKey, signingKeyId: 'fixture-release-key' });
   const parsed = JSON.parse(await readFile(manifest, 'utf8'));
   assert.equal(parsed.signature.algorithm, 'ed25519');
   assert.equal(parsed.signature.keyId, 'fixture-release-key');
