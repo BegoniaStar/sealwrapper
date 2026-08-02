@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -20,7 +20,7 @@ import { stageSealpack } from '../../src/stage.ts';
 
 const execFileAsync = promisify(execFile);
 
-function config() {
+function config(): any {
   return {
     schemaVersion: 1,
     package: { name: 'Bridge Fixture', version: '1.0.0', authors: ['Tester'], license: 'MIT', description: '', homepage: '' },
@@ -69,6 +69,12 @@ test('managed exact core performs strict validation and real install-enable-relo
   assert.deepEqual(typeAudit.differences, []);
   const replyAudit = await auditReplyGrammar(verified.worktree);
   assert.deepEqual(replyAudit.differences, []);
+  const state = join(root, '.seal', 'core', 'state-1.6.0.json');
+  const stateBackup = `${state}.regression-backup`;
+  await rename(state, stateBackup);
+  await symlink('/tmp', state);
+  try { await assert.rejects(() => coreVerify(root), /symbolic-link.*managed core path/i); }
+  finally { await unlink(state); await rename(stateBackup, state); }
   const mirror = join(root, '.seal', 'core', 'mirror.git');
   await execFileAsync('git', ['-C', mirror, 'remote', 'set-url', 'origin', 'https://example.invalid/tampered-core']);
   await assert.rejects(() => coreVerify(root), /mirror remote mismatch/i);
