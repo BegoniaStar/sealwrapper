@@ -14,4 +14,9 @@ while [ -L "$script" ]; do
 done
 
 script_dir=$(CDPATH= cd -P "$(dirname "$script")" 2>/dev/null && pwd) || exit 1
-exec node --experimental-strip-types "$script_dir/src/cli.ts" "$@"
+entry="$script_dir/dist/cli.js"
+if [ ! -f "$entry" ]; then
+  printf '%s\n' 'sealwrapper is not built; run npm install or npm run bundle in the package directory' >&2
+  exit 1
+fi
+exec node "$entry" "$@"

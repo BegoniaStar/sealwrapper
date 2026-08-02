@@ -19,6 +19,20 @@ test('npm-style symlink launcher resolves the package source entry point', async
   assert.match(result.stdout, /^Usage: sealwrapper\|sealw /);
 });
 
+test('packed global CLI uses compiled JavaScript outside node_modules type stripping', async () => {
+  const destination = join(tmpdir(), `sealwrapper-global-${Date.now()}`);
+  const prefix = join(destination, 'prefix');
+  await mkdir(destination, { recursive: true });
+  const manifest = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as { name: string; version: string };
+  await execFileAsync('npm', ['pack', '--pack-destination', destination], { cwd: process.cwd() });
+  await execFileAsync('npm', ['install', '--global', '--ignore-scripts', '--prefix', prefix, join(destination, `${manifest.name}-${manifest.version}.tgz`)], { cwd: destination });
+  const launcher = join(prefix, 'bin', 'sealw');
+  const result = await execFileAsync(launcher, ['--help'], { cwd: destination });
+  assert.match(result.stdout, /^Usage: sealwrapper\|sealw /);
+  await execFileAsync(launcher, ['init', 'project', '--kind', 'js', '--no-sync'], { cwd: destination });
+  await execFileAsync(launcher, ['typecheck'], { cwd: join(destination, 'project') });
+});
+
 test('init creates a schema-v1 resource project with lock and no legacy extension.json', async () => {
   const destination = join(tmpdir(), `sealwrapper-init-${Date.now()}`);
   await runCli(['init', destination, '--kind', 'resource', '--no-sync'], { cwd: process.cwd(), write: () => {} });

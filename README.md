@@ -26,10 +26,17 @@ mise exec -- npm ci
 mise exec -- ./sealw --help
 ```
 
-To expose `sealw` through npm's bin links, run `mise exec -- npm link` in the
-checkout. The first `core sync` also needs Git, Go `1.25.0`, and network access
-to the lock-pinned mirror; `--offline` works only after that core is cached and
-verified.
+To install the compiled CLI globally from that checkout, run:
+
+```sh
+mise exec -- npm install -g .
+mise exec -- sealw --help
+```
+
+`npm install -g git+https://...` additionally requires npm's `allow-git` setting
+to permit Git dependencies. The first `core sync` also needs Git, Go `1.25.0`,
+and network access to the lock-pinned mirror; `--offline` works only after that
+core is cached and verified.
 
 The concise [implementation and test map](docs/implementation-map.md) ties
 the approved P0/P1/P2 design requirements to their modules and regression
