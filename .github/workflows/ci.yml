@@ -43,17 +43,5 @@ jobs:
       - name: Install locked Node dependencies
         run: mise exec -- npm ci
 
-      - name: Typecheck
-        run: mise exec -- npm run typecheck
-
-      - name: Unit tests
-        run: mise exec -- npm test
-
-      - name: Go API scanner tests
-        run: mise exec -- npm run test:api-scanner
-
-      - name: Source-core integration
-        run: mise exec -- npm run test:integration
-
-      - name: Examples regression
-        run: mise exec -- npm run test:examples
+      - name: Full verification gate
+        run: mise exec -- npm run check

@@ -68,7 +68,7 @@ test('P2 trust accepts an authenticated Ed25519 key rotation before a new overla
   const newPair = generateKeyPairSync('ed25519');
   const oldKey = oldPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
   const newKey = newPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
-  const target = structuredClone(pinnedTarget);
+  const target = structuredClone(pinnedTarget) as any;
   target.trust.activeKeyId = 'new';
   target.trust.keys = [{ id: 'old', algorithm: 'ed25519', publicKey: oldKey }, { id: 'new', algorithm: 'ed25519', publicKey: newKey }];
   const notBefore = '2026-08-01T00:00:00.000Z';

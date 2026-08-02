@@ -13,12 +13,16 @@
   },
   "scripts": {
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts",
+    "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=70 --test-coverage-branches=60 --test-coverage-functions=70 --test tests/unit/*.test.ts",
     "test:integration": "node --experimental-strip-types --test tests/integration/*.test.ts",
+    "test:integration:required": "SEALWRAPPER_CORE_INTEGRATION=1 SEALWRAPPER_REQUIRE_CORE_INTEGRATION=1 npm run test:integration",
     "test:api-scanner": "cd tools/seal-api-scan && go test ./...",
     "test:examples": "node --experimental-strip-types tools/test-examples.ts",
     "test:examples:offline": "node --experimental-strip-types tools/test-examples.ts --offline",
+    "build": "npm run typecheck",
+    "lint": "node --experimental-strip-types tools/lint.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run test && npm run test:api-scanner && npm run test:integration"
+    "check": "npm run build && npm run lint && npm run test:coverage && npm run test:api-scanner && npm run test:integration:required && npm run test:examples"
   },
   "dependencies": {
     "esbuild": "0.27.1",

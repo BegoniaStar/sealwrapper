@@ -20,7 +20,8 @@
 
 ## 验证层级
 
-- `mise exec -- npm run check`：Node 单元测试、Go AST scanner、bridge 协议契约。
+- `mise exec -- npm run check`：build/typecheck、源码 lint、带覆盖率门槛的
+  Node 单元测试、Go AST scanner、必需的真实 managed-core 集成，以及全部示例回归。
 - `SEALWRAPPER_CORE_INTEGRATION=1 mise exec -- npm run test:integration`：从
   lock 指定 core 源码构建 bridge，验证 parser、资源加载与真实 reload。
 - `mise exec -- npm run test:examples`：每个示例同步/审计 core 与类型、运行

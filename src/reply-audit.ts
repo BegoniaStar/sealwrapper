@@ -1,12 +1,15 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { access, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { SealwrapperError } from './errors.ts';
+import { pinnedTarget } from './pinned-target.ts';
 
 const toolRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const scannerRoot = join(toolRoot, 'tools', 'seal-api-scan');
+const execFileAsync = promisify(execFile);
 
 export type ReplyGrammar = {
   condTypes: string[];
@@ -78,6 +81,18 @@ function runScanner(args: string[]): Promise<{ code: number; stdout: string; std
   });
 }
 
+async function assertPinnedGo() {
+  let output: string;
+  try {
+    output = (await execFileAsync('go', ['version'])).stdout;
+  } catch (error) {
+    throw new SealwrapperError(`Go ${pinnedTarget.testOverlay.goVersion} is required for reply grammar audit: ${(error as Error).message}`, 2);
+  }
+  if (!output.includes(`go${pinnedTarget.testOverlay.goVersion} `)) {
+    throw new SealwrapperError(`Go ${pinnedTarget.testOverlay.goVersion} is required for reply grammar audit; found ${output.trim() || 'unavailable'}`, 2);
+  }
+}
+
 async function overlayPath(worktree: string): Promise<string> {
   const directory = join(worktree, 'dice');
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[]);
@@ -96,6 +111,7 @@ async function overlayPath(worktree: string): Promise<string> {
  * new signed overlay revision.
  */
 export async function auditReplyGrammar(worktree: string): Promise<{ grammar: ReplyGrammarAudit; differences: string[] }> {
+  await assertPinnedGo();
   const overlay = await overlayPath(worktree);
   const result = await runScanner(['--core', worktree, '--reply-grammar', '--overlay', overlay]);
   if (result.code !== 0) throw new SealwrapperError(`Go reply grammar audit failed:\n${(result.stderr || result.stdout).trim()}`, 3);

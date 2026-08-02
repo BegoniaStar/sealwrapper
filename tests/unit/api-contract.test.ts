@@ -61,7 +61,7 @@ test('type contract coverage rejects omitted or impossible API declarations', ()
 });
 
 test('inventory comparison reports exact added, removed, and signature changes', () => {
-  const changed = structuredClone(inventory);
+  const changed = structuredClone(inventory) as any;
   changed.entries[1].arity = 2;
   changed.entries.push({ path: 'seal.deck', kind: 'object', source: 'dice/dice_jsvm.go:4' });
   const differences = compareApiInventories(inventory, changed);

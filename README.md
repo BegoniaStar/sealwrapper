@@ -40,10 +40,11 @@ For a checkout-wide verification, use the same pinned toolchain:
 mise install
 mise exec -- npm ci
 mise exec -- npm run check
-mise exec -- npm run test:examples
 ```
 
-`test:examples` discovers every `examples/*/seal.config.json`, prepares its
+`check` runs the build/type gate, source lint, unit tests with coverage
+thresholds, Go API scanner, required managed-core integration, and the full
+example regression. `test:examples` discovers every `examples/*/seal.config.json`, prepares its
 lock-managed core, syncs and verifies generated types, runs project unit tests,
 checks resources, and executes every release-marked scenario with offline
 JSON/SVG/HTML/PNG reports. Use
