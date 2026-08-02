@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import test from 'node:test';
 
 import { loadProjectConfig } from '../../src/config.ts';
@@ -61,6 +61,44 @@ test('schema v1 rejects unknown and legacy configuration fields instead of silen
   await assert.rejects(() => loadProjectConfig(nestedRoot), /glob.*unsupported/i);
 });
 
+test('schema v1 rejects metadata control characters and invalid SemVer prerelease identifiers', async () => {
+  const newline = resourceConfig() as any;
+  newline.package.description = 'unsafe\n// @grant        none';
+  const newlineRoot = await fixture(newline);
+  await assert.rejects(() => loadProjectConfig(newlineRoot), /control characters/i);
+
+  const author = resourceConfig() as any;
+  author.package.authors = ['Tester\u0007'];
+  const authorRoot = await fixture(author);
+  await assert.rejects(() => loadProjectConfig(authorRoot), /control characters/i);
+
+  const permission = resourceConfig() as any;
+  permission.sealpack.permissions.fileRead = ['/tmp/\nmanaged'];
+  const permissionRoot = await fixture(permission);
+  await assert.rejects(() => loadProjectConfig(permissionRoot), /control characters/i);
+
+  const leadingZero = resourceConfig() as any;
+  leadingZero.package.version = '1.2.3-01';
+  const leadingZeroRoot = await fixture(leadingZero);
+  await assert.rejects(() => loadProjectConfig(leadingZeroRoot), /canonical semantic version/i);
+});
+
+test('schema v1 validates optional store asset values by type', async () => {
+  for (const value of [null, false, 0, {}]) {
+    const config = resourceConfig() as any;
+    config.sealpack.store.icon = value;
+    const root = await fixture(config);
+    await assert.rejects(() => loadProjectConfig(root), /sealpack\.store\.icon.*string/i);
+  }
+
+  const omitted = resourceConfig() as any;
+  delete omitted.sealpack.store.icon;
+  delete omitted.sealpack.store.banner;
+  const loaded = await loadProjectConfig(await fixture(omitted));
+  assert.equal(loaded.sealpack.store.icon, '');
+  assert.equal(loaded.sealpack.store.banner, '');
+});
+
 test('staging maps only supported resource roots and generates manifest patterns', async () => {
   const root = await fixture(resourceConfig());
   await mkdir(join(root, 'content/decks'), { recursive: true });
@@ -109,6 +147,23 @@ test('optional JS bundle is staged only inside scripts with a generated userscri
   assert.match(bundle, /Resource Fixture/);
   assert.match(staged.manifest, /scripts = \["scripts\/fixture\.js"\]/);
   assert.doesNotMatch(staged.manifest, /scripts = \["scripts\/\*\*"\]/);
+});
+
+test('JS bundle rejects an import that resolves outside the project root', async () => {
+  const raw = resourceConfig() as any;
+  raw.build = { entry: 'src/index.ts', ecmaTarget: 'es6', bundleFileName: 'fixture.js' };
+  raw.sealpack.contents = { scripts: { bundle: true, path: 'scripts/fixture.js' } };
+  const root = await fixture(raw);
+  await mkdir(join(root, 'src'), { recursive: true });
+  const outside = join(tmpdir(), `${basename(root)}-outside.ts`);
+  try {
+    await writeFile(outside, 'export default 42;\n');
+    await writeFile(join(root, 'src/index.ts'), `import value from '${relative(join(root, 'src'), outside).replaceAll('\\\\', '/')}'; console.log(value);\n`);
+    const config = await loadProjectConfig(root);
+    await assert.rejects(() => stageSealpack({ root, config, target: '1.6.0' }), /outside the project root|project boundary/i);
+  } finally {
+    await rm(outside, { force: true });
+  }
 });
 
 test('a project package manifest requires its npm lockfile but is never staged into a sealpack', async () => {

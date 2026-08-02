@@ -9,6 +9,12 @@ const deflate = promisify(deflateRaw);
 const zipDate = 0x0021; // 1980-01-01: deterministic ZIP timestamp
 const maxZipEntries = 65_535;
 const maxZipSize = 0xffff_ffff;
+// Keep producer-side limits aligned with the target bridge's archive gate.
+// The classic ZIP field limits above are much larger and by themselves would
+// permit an archive that the bridge immediately rejects (or exhaust memory
+// while it is being assembled).
+export const maxArchiveCompressedSize = 128 * 1024 * 1024;
+export const maxArchiveExpandedSize = 512 * 1024 * 1024;
 
 const crcTable = (() => {
   const table = new Uint32Array(256);
@@ -53,22 +59,38 @@ function centralHeader(entry: any, checksum: number): Buffer {
   return header;
 }
 
-export async function createZipArchive(entries: { path: string; data: Buffer }[]): Promise<Buffer> {
+export type ZipArchiveLimits = { compressedSize?: number; expandedSize?: number };
+
+export async function createZipArchive(entries: { path: string; data: Buffer }[], limits: ZipArchiveLimits = {}): Promise<Buffer> {
+  const compressedLimit = limits.compressedSize ?? maxArchiveCompressedSize;
+  const expandedLimit = limits.expandedSize ?? maxArchiveExpandedSize;
+  invariant(Number.isSafeInteger(compressedLimit) && compressedLimit > 0, 'Sealpack compressed limit must be a positive safe integer', 3);
+  invariant(Number.isSafeInteger(expandedLimit) && expandedLimit > 0, 'Sealpack expanded limit must be a positive safe integer', 3);
   invariant(entries.length <= maxZipEntries, 'Sealpack exceeds classic ZIP entry limit', 3);
   const names = new Set<string>();
   const resolved: any[] = [];
   let offset = 0;
+  let expandedSize = 0;
+  let centralSize = 0;
   for (const candidate of [...entries].sort((left, right) => comparePath(left.path, right.path))) {
     const path = safePath(candidate.path);
     invariant(!names.has(path), `Duplicate sealpack entry: ${path}`, 3);
     names.add(path);
-    const data = Buffer.from(candidate.data);
+    // Staged files are already immutable snapshots.  Avoid copying a large
+    // Buffer here: the aggregate limit must be enforceable without briefly
+    // doubling a near-limit package's resident memory.
+    const data = Buffer.isBuffer(candidate.data) ? candidate.data : Buffer.from(candidate.data);
+    expandedSize += data.length;
+    invariant(expandedSize <= expandedLimit, `Sealpack exceeds ${expandedLimit / (1024 * 1024)} MiB expanded limit`, 3);
     invariant(data.length <= maxZipSize, `Sealpack entry is too large: ${path}`, 3);
     const compressed = Buffer.from(await deflate(data, { level: 9 }));
     const name = Buffer.from(path, 'utf8');
-    invariant(name.length <= 0xffff && offset + 30 + name.length + compressed.length <= maxZipSize, `Sealpack ZIP exceeds classic limits at ${path}`, 3);
+    const nextOffset = offset + 30 + name.length + compressed.length;
+    invariant(name.length <= 0xffff && nextOffset <= maxZipSize, `Sealpack ZIP exceeds classic limits at ${path}`, 3);
+    centralSize += 46 + name.length;
+    invariant(nextOffset + centralSize + 22 <= compressedLimit, `Sealpack exceeds ${compressedLimit / (1024 * 1024)} MiB compressed limit`, 3);
     resolved.push({ path, name, data, compressed, offset });
-    offset += 30 + name.length + compressed.length;
+    offset = nextOffset;
   }
   const locals: Buffer[] = [], central: Buffer[] = [];
   for (const entry of resolved) {
@@ -78,6 +100,7 @@ export async function createZipArchive(entries: { path: string; data: Buffer }[]
   }
   const centralDirectory = Buffer.concat(central);
   invariant(offset + centralDirectory.length <= maxZipSize, 'Sealpack ZIP central directory exceeds classic limits', 3);
+  invariant(offset + centralDirectory.length + 22 <= compressedLimit, `Sealpack exceeds ${compressedLimit / (1024 * 1024)} MiB compressed limit`, 3);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x0605_4b50, 0); end.writeUInt16LE(resolved.length, 8); end.writeUInt16LE(resolved.length, 10);
   end.writeUInt32LE(centralDirectory.length, 12); end.writeUInt32LE(offset, 16);

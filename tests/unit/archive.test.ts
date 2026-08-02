@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { archiveSealpack, zipEntryNames } from '../../src/archive.ts';
+import { archiveSealpack, createZipArchive, zipEntryNames } from '../../src/archive.ts';
 
 const staged = {
   packageId: 'tester/cards', version: '1.0.0', manifest: 'format_version = "1.0.0"\n',
@@ -23,4 +23,15 @@ test('sealpack archive is deterministic, sorted, and contains only staged files'
   await archiveSealpack(staged, second);
   assert.deepEqual(await readFile(first), await readFile(second));
   assert.deepEqual(zipEntryNames(await readFile(first)), ['decks/cards.json', 'info.toml', 'reply/hello.yaml']);
+});
+
+test('sealpack producer enforces expanded and compressed archive limits before publishing', async () => {
+  await assert.rejects(
+    () => createZipArchive([{ path: 'large.txt', data: Buffer.alloc(8, 0x41) }], { expandedSize: 4 }),
+    /expanded limit/,
+  );
+  await assert.rejects(
+    () => createZipArchive([{ path: 'entry.txt', data: Buffer.from('archive') }], { compressedSize: 32 }),
+    /compressed limit/,
+  );
 });

@@ -4,7 +4,12 @@ import { isAbsolute, posix } from 'node:path';
 import { invariant, SealwrapperError } from './errors.ts';
 
 const packageIdPattern = /^[\p{L}\p{N}_-]{1,64}\/[\p{L}\p{N}_-]{1,64}$/u;
-const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+// SemVer 2.0.0's grammar is almost expressible as one regexp.  The one
+// rule that needs a small follow-up check is that numeric prerelease
+// identifiers may not contain leading zeroes (for example, `-01` is not
+// valid, while `-0` is).
+const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const controlCharacterPattern = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
 function isRecord(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -20,8 +25,14 @@ function array(value: unknown, label: string): any[] {
   return value;
 }
 
+function strings(value: unknown, label: string): string[] {
+  const values = array(value, label);
+  return values.map((item, index) => string(item, `${label}[${index}]`));
+}
+
 function string(value: unknown, label: string, allowEmpty = false): string {
   invariant(typeof value === 'string' && (allowEmpty || value.length > 0), `${label} must be a ${allowEmpty ? 'string' : 'non-empty string'}`);
+  invariant(!controlCharacterPattern.test(value), `${label} must not contain control characters`);
   return value;
 }
 
@@ -53,9 +64,11 @@ function verifyMetadata(config: Record<string, any>) {
   onlyKeys(metadata, 'package', ['name', 'version', 'authors', 'license', 'description', 'homepage']);
   string(metadata.name, 'package.name');
   const version = string(metadata.version, 'package.version');
-  invariant(semverPattern.test(version), 'package.version must be canonical semantic version');
+  const semver = semverPattern.exec(version);
+  invariant(semver && !(semver[4]?.split('.').some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'))), 'package.version must be canonical semantic version');
   const authors = array(metadata.authors, 'package.authors');
   invariant(authors.length > 0 && authors.every((author) => typeof author === 'string' && author.length > 0), 'package.authors must contain at least one non-empty string');
+  for (const [index, author] of authors.entries()) string(author, `package.authors[${index}]`);
   string(metadata.license, 'package.license');
   string(metadata.description, 'package.description', true);
   string(metadata.homepage, 'package.homepage', true);
@@ -114,7 +127,7 @@ function verifySealpack(config: Record<string, any>) {
   const permissions = record(sealpack.permissions, 'sealpack.permissions');
   onlyKeys(permissions, 'sealpack.permissions', ['network', 'networkHosts', 'acknowledgeUnrestrictedNetwork', 'fileRead', 'fileWrite', 'dangerous', 'httpServer', 'ipc']);
   for (const name of ['network', 'acknowledgeUnrestrictedNetwork', 'dangerous', 'httpServer']) boolean(permissions[name], `sealpack.permissions.${name}`);
-  for (const name of ['networkHosts', 'fileRead', 'fileWrite', 'ipc']) invariant(array(permissions[name], `sealpack.permissions.${name}`).every((item) => typeof item === 'string'), `sealpack.permissions.${name} must contain strings`);
+  for (const name of ['networkHosts', 'fileRead', 'fileWrite', 'ipc']) strings(permissions[name], `sealpack.permissions.${name}`);
   if (!permissions.network) {
     invariant(permissions.networkHosts.length === 0 && !permissions.acknowledgeUnrestrictedNetwork, 'networkHosts and acknowledgeUnrestrictedNetwork require network: true');
   }
@@ -126,12 +139,21 @@ function verifySealpack(config: Record<string, any>) {
   onlyKeys(store, 'sealpack.store', ['category', 'icon', 'banner', 'screenshots']);
   string(store.category, 'sealpack.store.category', true);
   for (const name of ['icon', 'banner']) {
-    if (store[name]) safeProjectPath(store[name], `sealpack.store.${name}`, 'assets');
+    // An empty string is the manifest's explicit "not supplied" sentinel.
+    // Do not use truthiness here: `false`, `0`, and `null` must not silently
+    // turn into an absent asset.
+    if (store[name] === undefined) {
+      store[name] = '';
+      continue;
+    }
+    const asset = string(store[name], `sealpack.store.${name}`, true);
+    if (asset.length > 0) safeProjectPath(asset, `sealpack.store.${name}`, 'assets');
   }
   for (const asset of array(store.screenshots, 'sealpack.store.screenshots')) safeProjectPath(asset, 'sealpack.store.screenshots entry', 'assets');
   const dependencies = record(sealpack.dependencies, 'sealpack.dependencies');
   for (const [id, range] of Object.entries(dependencies)) {
-    invariant(packageIdPattern.test(id) && typeof range === 'string' && range.length > 0, 'sealpack.dependencies must use package IDs and non-empty ranges');
+    invariant(packageIdPattern.test(id), 'sealpack.dependencies must use package IDs and non-empty ranges');
+    string(range, `sealpack.dependencies.${id}`);
   }
 }
 
@@ -142,7 +164,7 @@ function verifyRelease(config: Record<string, any>) {
   invariant(release.checksum === 'sha256', 'release.checksum must be sha256');
   const policy = record(release.artifactPolicy, 'release.artifactPolicy');
   onlyKeys(policy, 'release.artifactPolicy', ['forbiddenPaths', 'forbiddenExtensions']);
-  for (const name of ['forbiddenPaths', 'forbiddenExtensions']) invariant(array(policy[name], `release.artifactPolicy.${name}`).every((item) => typeof item === 'string'), `release.artifactPolicy.${name} must contain strings`);
+  for (const name of ['forbiddenPaths', 'forbiddenExtensions']) strings(policy[name], `release.artifactPolicy.${name}`);
 }
 
 export function validateProjectConfig(raw: unknown): any {

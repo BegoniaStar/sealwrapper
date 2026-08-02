@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -41,5 +41,12 @@ test('plugin typecheck accepts the target API and rejects unknown host members',
   await assert.doesNotReject(() => typecheckProject(root));
 
   await writeFile(join(root, 'src', 'index.ts'), 'seal.thisApiDoesNotExist();\n');
+  await assert.rejects(() => typecheckProject(root), /thisApiDoesNotExist/);
+});
+
+test('fallback typecheck includes and checks JavaScript source modules', async () => {
+  const root = await createProject('const valid = 1;\nvoid valid;\n');
+  await rm(join(root, 'src', 'index.ts'));
+  await writeFile(join(root, 'src', 'index.js'), 'seal.thisApiDoesNotExist();\n');
   await assert.rejects(() => typecheckProject(root), /thisApiDoesNotExist/);
 });

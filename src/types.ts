@@ -119,9 +119,12 @@ function projectProgram(ts: typeof import('typescript'), projectRoot: string, de
   }
   const sourceDirectory = join(projectRoot, 'src');
   const sources = ts.sys.directoryExists(sourceDirectory)
-    ? ts.sys.readDirectory(sourceDirectory, ['.ts', '.mts', '.cts'], undefined, ['**/*'])
+    ? ts.sys.readDirectory(sourceDirectory, ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'], undefined, ['**/*'])
     : [];
-  return { fileNames: [...new Set([...sources, declaration])], options: defaults };
+  // Projects without a tsconfig still need their JavaScript entrypoints
+  // checked.  TypeScript otherwise parses them only as pass-through inputs (or
+  // omits them entirely), allowing an invalid host API use to reach esbuild.
+  return { fileNames: [...new Set([...sources, declaration])], options: { ...defaults, allowJs: true, checkJs: true } };
 }
 
 /** Typechecks plugin code against the exact host contract without emitting JS. */
