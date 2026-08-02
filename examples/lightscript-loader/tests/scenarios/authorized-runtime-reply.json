@@ -1,0 +1,34 @@
+{
+  "release": true,
+  "title": "骰主添加回雪回复与今日人品代码",
+  "clock": "2026-08-01T00:00:00Z",
+  "host": {
+    "diceMasters": ["30003"],
+    "extensionConfigs": {
+      "sealdice-lightscript-loader": {
+        "lightscript.management.enabled": true,
+        "lightscript.management.whitelist": ""
+      }
+    }
+  },
+  "messages": [
+    { "sequence": 1, "qq": "30003", "nickname": "骰主", "role": "member", "text": ".回雪 添加 回雪测试 | 已由回雪加载" },
+    { "sequence": 2, "qq": "30001", "nickname": "普通用户", "role": "member", "text": "回雪测试" },
+    { "sequence": 3, "qq": "30001", "nickname": "普通用户", "role": "member", "text": "回雪素材演示" },
+    { "sequence": 4, "qq": "30003", "nickname": "骰主", "role": "member", "text": ".回雪 添加代码 今日人品 | 【设置固态变量 今日人品_【现行日期】】【设置变量针对个人 今日人品_【现行日期】】【赋值变量 今日人品_【现行日期】,【执行脚本 (function(){var rp=Lib.jrrp('');var tier=rp>=90?'大吉':rp>=70?'吉':rp>=40?'平':rp>=20?'小凶':'大凶';return tier+'·第'+(Math.ceil(rp/20)||1)+'阶';})()】】{user}，今日人品为 #{JRRP-}（【变量 今日人品_【现行日期】】）。海豹骰已按当日人品生成运势。" },
+    { "sequence": 5, "qq": "30001", "nickname": "Alice", "role": "member", "text": "今日人品" },
+    { "sequence": 6, "qq": "30004", "nickname": "Bob", "role": "member", "text": "今日人品" },
+    { "sequence": 7, "qq": "30001", "nickname": "Alice", "role": "member", "text": "今日人品" }
+  ],
+  "expect": {
+    "outputs": [
+      { "inReplyToSequence": 1, "text": "回雪：已添加运行时回复“回雪测试”。" },
+      { "inReplyToSequence": 2, "text": "已由回雪加载" },
+      { "inReplyToSequence": 3, "text": "这是从 assets/lightscripts 加载的回雪内容包。" },
+      { "inReplyToSequence": 4, "text": "回雪：已添加运行时代码“今日人品”。" },
+      { "inReplyToSequence": 5, "textPattern": "^Alice，今日人品为 [0-9]+（(?:大吉|吉|平|小凶|大凶)·第[1-5]阶）。海豹骰已按当日人品生成运势。$" },
+      { "inReplyToSequence": 6, "textPattern": "^Bob，今日人品为 [0-9]+（(?:大吉|吉|平|小凶|大凶)·第[1-5]阶）。海豹骰已按当日人品生成运势。$" },
+      { "inReplyToSequence": 7, "textPattern": "^Alice，今日人品为 [0-9]+（(?:大吉|吉|平|小凶|大凶)·第[1-5]阶）。海豹骰已按当日人品生成运势。$" }
+    ]
+  }
+}

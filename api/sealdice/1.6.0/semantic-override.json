@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "target": "1.6.0",
+  "template": "api/sealdice/1.6.0/seal.d.ts.template",
+  "declarationOnlyPaths": [],
+  "inventoryOnlyPaths": []
+}

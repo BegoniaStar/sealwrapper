@@ -1,0 +1,17 @@
+{
+  "release": true,
+  "title": "抽取本包调查员 JSON 牌堆",
+  "clock": "2026-08-01T00:00:00Z",
+  "seed": 17,
+  "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": ".drawpc" }],
+  "expect": {
+    "random": {
+      "inputSequence": 1,
+      "oneOf": [
+        "调查员：艾琳·周，图书管理员，擅长在旧报纸里寻找线索。",
+        "调查员：顾明，码头工人，认识每一艘夜航船。",
+        "调查员：林澈，摄影师，随身带着一台装有红滤镜的相机。"
+      ]
+    }
+  }
+}

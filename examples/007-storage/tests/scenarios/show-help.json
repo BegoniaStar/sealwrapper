@@ -1,0 +1,7 @@
+{
+  "release": true,
+  "title": "投喂命令帮助",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": ".投喂 help" }],
+  "expect": { "outputs": [{ "inReplyToSequence": 1, "text": "投喂，格式: .投喂 <物品>\n.投喂 记录 // 查看记录" }] }
+}

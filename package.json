@@ -1,0 +1,30 @@
+{
+  "name": "sealwrapper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sealpack-only SealDice extension development tools",
+  "type": "module",
+  "bin": {
+    "sealwrapper": "./sealw",
+    "sealw": "./sealw"
+  },
+  "engines": {
+    "node": ">=26.5.0 <27"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/unit/*.test.ts",
+    "test:integration": "node --experimental-strip-types --test tests/integration/*.test.ts",
+    "test:api-scanner": "cd tools/seal-api-scan && go test ./...",
+    "test:examples": "node --experimental-strip-types tools/test-examples.ts",
+    "test:examples:offline": "node --experimental-strip-types tools/test-examples.ts --offline",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test && npm run test:api-scanner && npm run test:integration"
+  },
+  "dependencies": {
+    "esbuild": "0.27.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.4"
+  }
+}

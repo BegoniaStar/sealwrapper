@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "package": { "name": "示例：读取玩家和群组数据", "version": "1.0.0", "authors": ["nao"], "license": "Apache-2.0", "description": "通过 .info 查看当前群、玩家和角色卡数据。", "homepage": "https://github.com/sealdice/javascript" },
+  "build": { "entry": "src/index.ts", "ecmaTarget": "es6", "bundleFileName": "008-context-data.js" },
+  "sealDice": { "profiles": [{ "id": "1.6.0", "kind": "exact" }], "defaultTarget": "1.6.0" },
+  "release": { "directory": "release", "checksum": "sha256", "artifactPolicy": { "forbiddenPaths": [], "forbiddenExtensions": [] } },
+  "sealpack": {
+    "packageId": "sealdice-js-examples/008-context-data", "minSealDice": "1.6.0", "contents": { "scripts": { "bundle": true, "path": "scripts/008-context-data.js" } }, "dependencies": {},
+    "permissions": { "network": false, "networkHosts": [], "acknowledgeUnrestrictedNetwork": false, "fileRead": [], "fileWrite": [], "dangerous": false, "httpServer": false, "ipc": [] },
+    "readme": "README.md", "assets": [], "store": { "category": "examples", "icon": "", "banner": "", "screenshots": [] }
+  }
+}

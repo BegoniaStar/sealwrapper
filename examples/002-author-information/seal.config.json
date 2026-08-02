@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "package": { "name": "示例：留下作者信息", "version": "1.0.0", "authors": ["木落"], "license": "Apache-2.0", "description": "最小 SealDice 扩展示例：包元信息由 seal.config.json 生成。", "homepage": "https://github.com/sealdice/javascript" },
+  "build": { "entry": "src/index.ts", "ecmaTarget": "es6", "bundleFileName": "002-author-information.js" },
+  "sealDice": { "profiles": [{ "id": "1.6.0", "kind": "exact" }], "defaultTarget": "1.6.0" },
+  "release": { "directory": "release", "checksum": "sha256", "artifactPolicy": { "forbiddenPaths": [], "forbiddenExtensions": [] } },
+  "sealpack": {
+    "packageId": "sealdice-js-examples/002-author-information", "minSealDice": "1.6.0", "contents": { "scripts": { "bundle": true, "path": "scripts/002-author-information.js" } }, "dependencies": {},
+    "permissions": { "network": false, "networkHosts": [], "acknowledgeUnrestrictedNetwork": false, "fileRead": [], "fileWrite": [], "dangerous": false, "httpServer": false, "ipc": [] },
+    "readme": "README.md", "assets": [], "store": { "category": "examples", "icon": "", "banner": "", "screenshots": [] }
+  }
+}

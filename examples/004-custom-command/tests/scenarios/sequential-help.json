@@ -1,0 +1,15 @@
+{
+  "release": true,
+  "title": "连续两轮上下文消息",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [
+    { "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": ".seal help" },
+    { "sequence": 2, "qq": "3909311212", "nickname": "Alice", "text": ".seal help" }
+  ],
+  "expect": {
+    "outputs": [
+      { "inReplyToSequence": 1, "text": "召唤一只海豹，可用.seal <名字> 命名" },
+      { "inReplyToSequence": 2, "text": "召唤一只海豹，可用.seal <名字> 命名" }
+    ]
+  }
+}

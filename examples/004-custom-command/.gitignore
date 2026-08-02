@@ -1,0 +1,4 @@
+.seal/
+dist/
+release/
+*.sealpack

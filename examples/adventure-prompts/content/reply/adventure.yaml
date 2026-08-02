@@ -1,0 +1,29 @@
+enable: true
+name: 城市冒险自动回复
+author:
+  - Sealwrapper 示例
+interval: 2
+items:
+  - enable: true
+    conditions:
+      - condType: textMatch
+        matchType: matchExact
+        value: 来点灵感
+    results:
+      - resultType: replyToSender
+        delay: 0
+        # #{DRAW-冒险灵感} 由 core 的 CompatibleReplace 调用 JSON 牌堆。
+        message:
+          - ["自动灵感：#{DRAW-冒险灵感}", 1]
+  - enable: true
+    conditions:
+      - condType: textMatch
+        matchType: matchExact
+        value: 发送双段
+    results:
+      - resultType: replyToSender
+        delay: 0
+        # DiceFormatV2 → CompatibleReplace 将 #{SPLIT} 变为本次上下文的
+        # split key；ReplyToSender 再经 SplitText 发出两条独立 QQ 消息。
+        message:
+          - ["第一段提示#{SPLIT}第二段提示", 1]

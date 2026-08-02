@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "SealDice LightScript Loader",
+    "version": "1.0.0",
+    "authors": ["BegoniaHe"],
+    "license": "MIT",
+    "description": "海豹骰上的回雪插件兼容加载器。",
+    "homepage": "https://github.com/BegoniaHe/sealdice-LightScriptLoader"
+  },
+  "build": {
+    "entry": "src/index.ts",
+    "ecmaTarget": "es6",
+    "bundleFileName": "lightscript-loader.js"
+  },
+  "sealDice": {
+    "profiles": [{ "id": "1.6.0", "kind": "exact" }],
+    "defaultTarget": "1.6.0"
+  },
+  "release": {
+    "directory": "release",
+    "checksum": "sha256",
+    "artifactPolicy": { "forbiddenPaths": [], "forbiddenExtensions": [] }
+  },
+  "sealpack": {
+    "packageId": "BegoniaHe/sealdice-lightscriptloader",
+    "minSealDice": "1.6.0",
+    "contents": { "scripts": { "bundle": true, "path": "scripts/lightscript-loader.js" } },
+    "dependencies": {},
+    "permissions": {
+      "network": false,
+      "networkHosts": [],
+      "acknowledgeUnrestrictedNetwork": false,
+      "fileRead": [],
+      "fileWrite": [],
+      "dangerous": false,
+      "httpServer": false,
+      "ipc": []
+    },
+    "readme": "README.md",
+    "assets": ["assets/lightscripts/index.json"],
+    "store": { "category": "tool", "icon": "", "banner": "", "screenshots": [] }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "release": true,
+  "title": "元信息示例加载后不注册指令",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": "hello" }],
+  "expect": { "noOutput": true }
+}

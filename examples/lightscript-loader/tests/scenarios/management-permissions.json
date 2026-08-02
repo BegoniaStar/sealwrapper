@@ -1,0 +1,27 @@
+{
+  "release": true,
+  "title": "回雪管理权限与连续消息",
+  "clock": "2026-08-01T00:00:00Z",
+  "host": {
+    "diceMasters": ["30003"],
+    "extensionConfigs": {
+      "sealdice-lightscript-loader": {
+        "lightscript.management.enabled": true,
+        "lightscript.management.whitelist": "30004"
+      }
+    }
+  },
+  "conversation": { "kind": "group", "id": "QQ-Group:lightscript-permissions", "name": "回雪测试群", "memberCount": 4 },
+  "messages": [
+    { "sequence": 1, "qq": "30001", "nickname": "普通用户", "role": "member", "text": ".回雪 状态" },
+    { "sequence": 2, "qq": "30002", "nickname": "群主", "role": "owner", "text": ".回雪 状态" },
+    { "sequence": 3, "qq": "30003", "nickname": "骰主", "role": "member", "text": ".回雪 状态" },
+    { "sequence": 4, "qq": "30004", "nickname": "白名单用户", "role": "member", "text": ".回雪 状态" }
+  ],
+  "expect": {
+    "outputs": [
+      { "inReplyToSequence": 3, "text": "回雪：内容包 1，auto 1，define 0，运行时回复 0。LightScript: 0 errors, 0 warnings" },
+      { "inReplyToSequence": 4, "text": "回雪：内容包 1，auto 1，define 0，运行时回复 0。LightScript: 0 errors, 0 warnings" }
+    ]
+  }
+}

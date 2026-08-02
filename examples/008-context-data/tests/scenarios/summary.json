@@ -1,0 +1,7 @@
+{
+  "release": true,
+  "title": "上下文数据摘要",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": ".info summary" }],
+  "expect": { "outputs": [{ "inReplyToSequence": 1, "text": "已读取群数据、玩家数据和当前角色卡数据。" }] }
+}

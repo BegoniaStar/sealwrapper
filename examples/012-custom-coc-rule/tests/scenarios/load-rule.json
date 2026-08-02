@@ -1,0 +1,7 @@
+{
+  "release": true,
+  "title": "自定义 COC 规则加载",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": "hello" }],
+  "expect": { "noOutput": true }
+}

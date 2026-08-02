@@ -1,0 +1,30 @@
+{
+  "release": true,
+  "title": "自动回复调用 JSON 牌堆",
+  "clock": "2026-08-01T00:00:00Z",
+  "seed": 17,
+  "conversation": {
+    "kind": "group",
+    "id": "QQ-Group:adventure-prompts",
+    "name": "冒险测试群"
+  },
+  "messages": [
+    {
+      "sequence": 1,
+      "qq": "3909311212",
+      "nickname": "Alice",
+      "text": "来点灵感"
+    }
+  ],
+  "expect": {
+    "random": {
+      "inputSequence": 1,
+      "oneOf": [
+        "自动灵感：雾港码头的旧航海图标出一间被封死的仓库。",
+        "自动灵感：钟楼管理员交出一把只在月光下有用的钥匙。",
+        "自动灵感：旧报纸的寻人启事背面写着失踪者的下一站。"
+      ],
+      "repeatable": true
+    }
+  }
+}

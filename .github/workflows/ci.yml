@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SEALWRAPPER_CORE_INTEGRATION: "1"
+      SEALWRAPPER_REQUIRE_CORE_INTEGRATION: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install offline report renderer prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk librsvg2-bin
+          fc-match --format '%{family}\n' 'Noto Serif CJK SC' | grep -Fx 'Noto Serif CJK SC'
+          rsvg-convert --version
+
+      - name: Install mise toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          mise --version
+          mise exec -- node --version
+          mise exec -- npm --version
+          mise exec -- go version
+          git --version
+
+      - name: Install locked Node dependencies
+        run: mise exec -- npm ci
+
+      - name: Typecheck
+        run: mise exec -- npm run typecheck
+
+      - name: Unit tests
+        run: mise exec -- npm test
+
+      - name: Go API scanner tests
+        run: mise exec -- npm run test:api-scanner
+
+      - name: Source-core integration
+        run: mise exec -- npm run test:integration
+
+      - name: Examples regression
+        run: mise exec -- npm run test:examples

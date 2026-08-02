@@ -1,0 +1,431 @@
+/**
+ * Reviewed semantic mapping for the lock-pinned SealDice JavaScript API.
+ *
+ * This is intentionally a semantic layer rather than generated Go output:
+ * Go signatures cannot faithfully express optional JavaScript arguments,
+ * nullability, Goja conversion, callbacks, or dynamic host behaviour.
+ */
+declare namespace seal {
+  export type BanRankType = -30 | -10 | 0 | 30;
+  export type TaskType = 'cron' | 'daily';
+  /** @deprecated Use TaskType. */
+  export type TimeOutTaskType = TaskType;
+
+  /** Information about the endpoint that received or sends a message. */
+  export interface EndPointInfo {
+    id: string;
+    nickname: string;
+    /** 0 disconnected, 1 connected, 2 connecting, 3 connection failed. */
+    state: number;
+    userId: string;
+    groupNum: number;
+    cmdExecutedNum: number;
+    cmdExecutedLastTime: number;
+    onlineTotalTime: number;
+    platform: string;
+    enable: boolean;
+  }
+
+  /** Current group information. It is null for contexts without a group. */
+  export interface GroupInfo {
+    active: boolean;
+    groupId: string;
+    guildId: string;
+    channelId: string;
+    groupName: string;
+    cocRuleIndex: number;
+    logCurName: string;
+    logOn: boolean;
+    recentDiceSendTime: number;
+    showGroupWelcome: boolean;
+    groupWelcomeMessage: string;
+    enteredTime: number;
+    inviteUserId: string;
+  }
+
+  /** Current player's information in the group. */
+  export interface GroupPlayerInfo {
+    name: string;
+    userId: string;
+    lastCommandTime: number;
+    autoSetNameTemplate: string;
+  }
+
+  export interface Sender {
+    nickname: string;
+    userId: string;
+    isRobot: boolean;
+  }
+
+  /** A message received from, or created for, a platform adapter. */
+  export interface Message {
+    platform: string;
+    message: string;
+    time: number;
+    /** The host currently uses group and private; adapters may provide other strings. */
+    messageType: string;
+    groupId: string;
+    guildId: string;
+    channelId: string;
+    sender: Sender;
+    /** Platform-specific message identifier. */
+    rawId: unknown;
+    /** Platform-specific structured message segments, when available. */
+    segment: unknown[];
+  }
+
+  /** Information context passed to commands and event hooks. */
+  export interface MsgContext {
+    endPoint: EndPointInfo | null;
+    group: GroupInfo | null;
+    player: GroupPlayerInfo | null;
+    isCurGroupBotOn: boolean;
+    isPrivate: boolean;
+    /** Origin group ID of a hidden command, when applicable. */
+    commandHideFlag: string;
+    /** -30 banned, 40 inviter, 50 admin, 60 owner, 70 trusted, 100 master. */
+    privilegeLevel: number;
+    delegateText: string;
+    /** Sends a notification through the current endpoint. */
+    notice(text: string): void;
+    /** Sends notifications across available platform endpoints. */
+    noticeCrossPlatform(text: string): void;
+  }
+
+  export interface AtInfo {
+    userId: string;
+    isRobot: boolean;
+  }
+
+  export interface Kwarg {
+    name: string;
+    valueExists: boolean;
+    value: string;
+    asBool: boolean;
+  }
+
+  export interface CmdArgs {
+    command: string;
+    args: string[];
+    kwargs: Kwarg[];
+    at: AtInfo[];
+    rawArgs: string;
+    amIBeMentioned: boolean;
+    amIBeMentionedFirst: boolean;
+    cleanArgs: string;
+    /** Parsed repetition count from syntax such as `3#command`. */
+    specialExecuteTimes: number;
+    rawText: string;
+    getKwarg(key: string): Kwarg | null;
+    getArgN(n: number): string;
+    chopPrefixToArgsWith(...prefixes: string[]): boolean;
+    eatPrefixWith(...prefixes: string[]): [string, boolean];
+    getRestArgsFrom(n: number): string;
+    isArgEqual(n: number, ...values: string[]): boolean;
+  }
+
+  export interface CmdExecuteResult {
+    solved: boolean;
+    showHelp: boolean;
+  }
+
+  export type CmdSolve = (
+    ctx: MsgContext,
+    msg: Message,
+    cmdArgs: CmdArgs,
+  ) => CmdExecuteResult;
+
+  export interface CmdItemInfo {
+    name: string;
+    help: string;
+    helpFunc: ((isShort: boolean) => string) | null;
+    allowDelegate: boolean;
+    disabledInPrivate: boolean;
+    enableExecuteTimesParse: boolean;
+    solve: CmdSolve | null;
+    raw: boolean;
+    checkCurrentBotOn: boolean;
+    checkMentionOthers: boolean;
+  }
+
+  export interface PokeEvent {
+    groupId: string;
+    senderId: string;
+    targetId: string;
+    isPrivate: boolean;
+  }
+
+  export interface GroupLeaveEvent {
+    groupId: string;
+    userId: string;
+    operatorId: string;
+  }
+
+  export type MessageHook = (ctx: MsgContext, msg: Message) => void;
+  export type CommandHook = (
+    ctx: MsgContext,
+    msg: Message,
+    cmdArgs: CmdArgs,
+  ) => void;
+
+  /** A registered JavaScript extension. Hooks are null until assigned. */
+  export interface ExtInfo {
+    name: string;
+    aliases: string[];
+    version: string;
+    author: string;
+    autoActive: boolean;
+    cmdMap: Record<string, CmdItemInfo>;
+    isLoaded: boolean;
+
+    onNotCommandReceived: MessageHook | null;
+    onCommandReceived: CommandHook | null;
+    onMessageReceived: MessageHook | null;
+    onMessageSend:
+      ((ctx: MsgContext, msg: Message, flag: string) => void) | null;
+    onMessageDeleted: MessageHook | null;
+    onMessageEdit: MessageHook | null;
+    onGroupJoined: MessageHook | null;
+    onGroupMemberJoined: MessageHook | null;
+    onGuildJoined: MessageHook | null;
+    onBecomeFriend: MessageHook | null;
+    onPoke: ((ctx: MsgContext, event: PokeEvent) => void) | null;
+    onGroupLeave: ((ctx: MsgContext, event: GroupLeaveEvent) => void) | null;
+    getDescText: ((ext: ExtInfo) => string) | null;
+    onLoad: (() => void) | null;
+
+    storageInit(): void;
+    storageClose(): void;
+    storageSet(key: string, value: string): void;
+    storageGet(key: string): string;
+    getPackageConfig(): Record<string, unknown>;
+  }
+
+  export interface BanListInfoItem {
+    id: string;
+    name: string;
+    score: number;
+    rank: BanRankType;
+    times: number[];
+    reasons: string[];
+    places: string[];
+    banTime: number;
+  }
+
+  export interface ConfigItem {
+    key: string;
+    type: string;
+    group: string;
+    defaultValue: unknown;
+    value: unknown;
+    option: unknown;
+    deprecated: boolean;
+    description: string;
+  }
+
+  export interface JsScriptTaskContext {
+    now: number;
+    key: string;
+  }
+
+  export interface JsScriptTask {
+    on(): boolean;
+    off(): boolean;
+  }
+
+  export interface CocRuleCheckRet {
+    successRank: number;
+    criticalSuccessValue: number;
+  }
+
+  export interface CocRuleInfo {
+    index: number;
+    key: string;
+    name: string;
+    desc: string;
+    check: (
+      ctx: MsgContext,
+      d100: number,
+      checkValue: number,
+      difficultyRequired: number,
+    ) => CocRuleCheckRet;
+  }
+
+  export interface VersionDetails {
+    versionCode: number;
+    version: string;
+    versionSimple: string;
+    versionDetail: {
+      major: number;
+      minor: number;
+      patch: number;
+      prerelease: string;
+      buildMetaData: string;
+    };
+  }
+
+  export interface DeckResult {
+    exists: boolean;
+    err: string;
+    result: string;
+  }
+
+  /** @deprecated Use DeckResult. */
+  export type deckResult = DeckResult;
+
+  export const ban: {
+    addBan(ctx: MsgContext, id: string, place: string, reason: string): void;
+    addTrust(ctx: MsgContext, id: string, place: string, reason: string): void;
+    remove(ctx: MsgContext, id: string): void;
+    getList(): BanListInfoItem[];
+    getUser(id: string): BanListInfoItem | null;
+  };
+
+  export const ext: {
+    new: (name: string, author: string, version: string) => ExtInfo;
+    newCmdExecuteResult(solved: boolean): CmdExecuteResult;
+    register(extension: ExtInfo): void;
+    find(name: string): ExtInfo | null;
+    newCmdItemInfo(): CmdItemInfo;
+
+    registerStringConfig(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: string,
+      description?: string,
+      group?: string,
+    ): void;
+    registerIntConfig(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: number,
+      description?: string,
+      group?: string,
+    ): void;
+    registerBoolConfig(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: boolean,
+      description?: string,
+      group?: string,
+    ): void;
+    registerFloatConfig(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: number,
+      description?: string,
+      group?: string,
+    ): void;
+    registerTemplateConfig(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: string[],
+      description?: string,
+      group?: string,
+    ): void;
+    registerOptionConfig(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: string,
+      options: string[],
+      description?: string,
+      group?: string,
+    ): void;
+    newConfigItem(
+      extension: ExtInfo,
+      key: string,
+      defaultValue: unknown,
+      description: string,
+    ): ConfigItem;
+    registerConfig(extension: ExtInfo, ...configs: ConfigItem[]): void;
+    getConfig(extension: ExtInfo, key: string): ConfigItem | null;
+    getStringConfig(extension: ExtInfo, key: string): string;
+    getIntConfig(extension: ExtInfo, key: string): number;
+    getBoolConfig(extension: ExtInfo, key: string): boolean;
+    getFloatConfig(extension: ExtInfo, key: string): number;
+    getTemplateConfig(extension: ExtInfo, key: string): string[];
+    getOptionConfig(extension: ExtInfo, key: string): string;
+    unregisterConfig(extension: ExtInfo, ...keys: string[]): void;
+    registerTask(
+      extension: ExtInfo,
+      taskType: TaskType,
+      value: string,
+      fn: (taskCtx: JsScriptTaskContext) => void,
+      key?: string,
+      description?: string,
+      group?: string,
+    ): JsScriptTask;
+  };
+
+  export const coc: {
+    newRule(): CocRuleInfo;
+    newRuleCheckResult(): CocRuleCheckRet;
+    registerRule(rule: CocRuleInfo): boolean;
+  };
+
+  export const vars: {
+    intGet(ctx: MsgContext, key: string): [number, boolean];
+    intSet(ctx: MsgContext, key: string, value: number): void;
+    strGet(ctx: MsgContext, key: string): [string, boolean];
+    strSet(ctx: MsgContext, key: string, value: string): void;
+    computedGet(ctx: MsgContext, key: string): [string, boolean];
+    computedSet(ctx: MsgContext, key: string, value: string): void;
+  };
+
+  export const gameSystem: {
+    newTemplate(data: string): void;
+    newTemplateByYaml(data: string): void;
+  };
+
+  export const deck: {
+    draw(ctx: MsgContext, name: string, isShuffle: boolean): DeckResult;
+    reload(): void;
+  };
+
+  export function newMessage(): Message;
+  export function createTempCtx(
+    endPoint: EndPointInfo,
+    msg: Message,
+  ): MsgContext;
+  export function getCtxProxyFirst(
+    ctx: MsgContext,
+    cmdArgs: CmdArgs,
+  ): MsgContext;
+  export function getCtxProxyAtPos(
+    ctx: MsgContext,
+    cmdArgs: CmdArgs,
+    pos: number,
+  ): MsgContext;
+  export function replyToSender(
+    ctx: MsgContext,
+    msg: Message,
+    text: string,
+  ): void;
+  export function replyPerson(
+    ctx: MsgContext,
+    msg: Message,
+    text: string,
+  ): void;
+  export function replyGroup(ctx: MsgContext, msg: Message, text: string): void;
+  export function memberBan(
+    ctx: MsgContext,
+    groupId: string,
+    userId: string,
+    duration: number,
+  ): void;
+  export function memberKick(
+    ctx: MsgContext,
+    groupId: string,
+    userId: string,
+  ): void;
+  export function format(ctx: MsgContext, text: string): string;
+  export function formatTmpl(ctx: MsgContext, text: string): string;
+  export function applyPlayerGroupCardByTemplate(
+    ctx: MsgContext,
+    template: string,
+  ): string;
+  export function setPlayerGroupCard(ctx: MsgContext, template: string): string;
+  export function getVersion(): VersionDetails;
+  export function getEndPoints(): EndPointInfo[];
+  export function base64ToImage(base64: string): string;
+}

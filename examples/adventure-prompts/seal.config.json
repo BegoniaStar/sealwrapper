@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "城市冒险灵感",
+    "version": "1.0.0",
+    "authors": ["Sealwrapper 示例"],
+    "license": "MIT",
+    "description": "自动回复和 JS 指令共享的城市冒险 JSON 牌堆。",
+    "homepage": "https://github.com/BegoniaStar/sealwrapper/tree/main/examples/adventure-prompts"
+  },
+  "build": {
+    "entry": "src/index.ts",
+    "ecmaTarget": "es6",
+    "bundleFileName": "adventure-prompts.js"
+  },
+  "sealDice": {
+    "profiles": [{ "id": "1.6.0", "kind": "exact" }],
+    "defaultTarget": "1.6.0"
+  },
+  "release": {
+    "directory": "release",
+    "checksum": "sha256",
+    "artifactPolicy": { "forbiddenPaths": [], "forbiddenExtensions": [] }
+  },
+  "sealpack": {
+    "packageId": "sealwrapper/adventure-prompts",
+    "minSealDice": "1.6.0",
+    "contents": {
+      "scripts": { "bundle": true, "path": "scripts/adventure-prompts.js" },
+      "decks": { "source": "content/decks" },
+      "reply": { "source": "content/reply" }
+    },
+    "dependencies": {},
+    "permissions": {
+      "network": false,
+      "networkHosts": [],
+      "acknowledgeUnrestrictedNetwork": false,
+      "fileRead": [],
+      "fileWrite": [],
+      "dangerous": false,
+      "httpServer": false,
+      "ipc": []
+    },
+    "readme": "README.md",
+    "assets": [],
+    "store": {
+      "category": "rules",
+      "icon": "",
+      "banner": "",
+      "screenshots": []
+    }
+  }
+}

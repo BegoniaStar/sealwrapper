@@ -1,0 +1,32 @@
+{
+  "release": true,
+  "title": "CQ @ 后的自定义指令",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [
+    {
+      "sequence": 1,
+      "qq": "3909311212",
+      "nickname": "Alice",
+      "text": "[CQ:at,qq=100000].seal help"
+    }
+  ],
+  "expect": {
+    "outputs": [
+      {
+        "inReplyToSequence": 1,
+        "text": "召唤一只海豹，可用.seal <名字> 命名"
+      }
+    ],
+    "transcript": {
+      "messages": [
+        {
+          "direction": "in",
+          "segments": [
+            { "type": "at", "target": "100000" },
+            { "type": "text", "text": ".seal help" }
+          ]
+        }
+      ]
+    }
+  }
+}

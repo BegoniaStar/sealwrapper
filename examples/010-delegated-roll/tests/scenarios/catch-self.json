@@ -1,0 +1,7 @@
+{
+  "release": true,
+  "title": "未 @ 时使用调用者上下文",
+  "clock": "2026-08-01T00:00:00Z",
+  "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": ".catch help" }],
+  "expect": { "outputs": [{ "inReplyToSequence": 1, "text": "捕捉某人，格式.catch <@名字>" }] }
+}

@@ -1,0 +1,5 @@
+{
+  "format": "sealdice-lightscript-toml-v1",
+  "id": "sealwrapper-demo",
+  "source": "[[auto]]\nkeywordFull = \"回雪素材演示\"\ncontent = \"这是从 assets/lightscripts 加载的回雪内容包。\"\n"
+}

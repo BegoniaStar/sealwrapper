@@ -1,0 +1,24 @@
+{
+  "release": true,
+  "title": "自动回复拆分为连续 QQ 消息",
+  "clock": "2026-08-01T00:00:00Z",
+  "conversation": {
+    "kind": "group",
+    "id": "QQ-Group:adventure-prompts",
+    "name": "冒险测试群"
+  },
+  "messages": [
+    {
+      "sequence": 1,
+      "qq": "3909311212",
+      "nickname": "Alice",
+      "text": "发送双段"
+    }
+  ],
+  "expect": {
+    "outputs": [
+      { "inReplyToSequence": 1, "text": "第一段提示" },
+      { "inReplyToSequence": 1, "text": "第二段提示" }
+    ]
+  }
+}
