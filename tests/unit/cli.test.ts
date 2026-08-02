@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access, mkdir, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import test from 'node:test';
 
 import { runCli } from '../../src/cli.ts';
+
+const execFileAsync = promisify(execFile);
+
+test('npm-style symlink launcher resolves the package source entry point', async () => {
+  const destination = join(tmpdir(), `sealwrapper-launcher-${Date.now()}`);
+  await mkdir(destination, { recursive: true });
+  const linkedLauncher = join(destination, 'sealw');
+  await symlink(join(process.cwd(), 'sealw'), linkedLauncher);
+  const result = await execFileAsync(linkedLauncher, ['--help'], { cwd: destination });
+  assert.match(result.stdout, /^Usage: sealwrapper\|sealw /);
+});
 
 test('init creates a schema-v1 resource project with lock and no legacy extension.json', async () => {
   const destination = join(tmpdir(), `sealwrapper-init-${Date.now()}`);

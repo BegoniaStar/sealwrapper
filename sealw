@@ -1,2 +1,17 @@
 #!/bin/sh
-exec node --experimental-strip-types "$(dirname "$0")/src/cli.ts" "$@"
+
+# npm exposes package binaries through a symlink in node_modules/.bin. Resolve
+# that link before locating the source entry point; otherwise `npx sealw` (and
+# global/local npm installs) incorrectly looks for src/cli.ts under .bin/.
+script=$0
+while [ -L "$script" ]; do
+  script_dir=$(CDPATH= cd -P "$(dirname "$script")" 2>/dev/null && pwd) || exit 1
+  link=$(readlink "$script") || exit 1
+  case "$link" in
+    /*) script=$link ;;
+    *) script=$script_dir/$link ;;
+  esac
+done
+
+script_dir=$(CDPATH= cd -P "$(dirname "$script")" 2>/dev/null && pwd) || exit 1
+exec node --experimental-strip-types "$script_dir/src/cli.ts" "$@"

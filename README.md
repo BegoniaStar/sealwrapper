@@ -13,6 +13,24 @@ Node `26.5.0` and Go `1.25.0`. Install mise, then run `mise install` before
 using the npm scripts. The CLI itself still runs on Node/TypeScript; Go is only
 compiled from the lock-managed core source for the test bridge and scanner.
 
+## Installation
+
+The current release is a private Git package rather than an npm-registry
+package. Install it from a checkout:
+
+```sh
+git clone https://github.com/BegoniaStar/sealwrapper.git
+cd sealwrapper
+mise install
+mise exec -- npm ci
+mise exec -- ./sealw --help
+```
+
+To expose `sealw` through npm's bin links, run `mise exec -- npm link` in the
+checkout. The first `core sync` also needs Git, Go `1.25.0`, and network access
+to the lock-pinned mirror; `--offline` works only after that core is cached and
+verified.
+
 The concise [implementation and test map](docs/implementation-map.md) ties
 the approved P0/P1/P2 design requirements to their modules and regression
 layers.
