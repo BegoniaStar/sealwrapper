@@ -185,7 +185,9 @@ async function scenarioFiles(projectRoot: string): Promise<string[]> {
   const directory = join(projectRoot, 'tests', 'scenarios');
   let entries: any[];
   try { entries = await readdir(directory, { withFileTypes: true }); } catch { throw new SealwrapperError('No scenario files found under tests/scenarios', 2); }
-  return entries.filter((entry) => entry.isFile() && entry.name.endsWith('.json')).map((entry) => join(directory, entry.name)).sort();
+  const files = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.json')).map((entry) => join(directory, entry.name)).sort((left, right) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
+  if (files.length === 0) throw new SealwrapperError('No scenario files found under tests/scenarios', 2);
+  return files;
 }
 
 async function scenarioTest(argumentsList: string[], projectRoot: string, options: CliOptions) {
@@ -200,8 +202,8 @@ async function scenarioTest(argumentsList: string[], projectRoot: string, option
   if (png && !render) throw new SealwrapperError('--png requires --render', 2);
   if (argumentsList.includes('--snapshot') && argumentsList.includes('--update-snapshots')) throw new SealwrapperError('--snapshot and --update-snapshots cannot be combined', 2);
   if (identity !== 'qq-public') throw new SealwrapperError('Only --identity qq-public is supported', 2);
-  const checked = await resourceCheck(projectRoot, options);
   const files = await scenarioFiles(projectRoot);
+  const checked = await resourceCheck(projectRoot, options);
   const releaseOnly = argumentsList.includes('--release');
   let executed = 0;
   for (const file of files) {
@@ -242,7 +244,10 @@ async function scenarioTest(argumentsList: string[], projectRoot: string, option
       output(options, `Report: ${report.json}, ${report.svg}, ${report.html}${report.png ? `, ${report.png}` : ''}`);
     }
   }
-  if (releaseOnly && executed === 0) throw new SealwrapperError('No release-marked scenario files found', 2);
+  if (executed === 0) {
+    if (releaseOnly) throw new SealwrapperError('No release-marked scenario files found', 2);
+    throw new SealwrapperError('No scenario files were executed', 2);
+  }
 }
 
 function artifactViolations(files: { path: string }[], policy: any): string[] {

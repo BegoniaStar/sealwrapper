@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -60,4 +60,13 @@ test('P2 CLI rejects invalid report controls before it accesses a managed core',
   await assert.rejects(() => runCli(['scenario', 'test', '--theme', 'neon'], { cwd: process.cwd(), write: () => {} }), /--theme/);
   await assert.rejects(() => runCli(['scenario', 'test', '--snapshot', '--update-snapshots'], { cwd: process.cwd(), write: () => {} }), /cannot be combined/);
   await assert.rejects(() => runCli(['scenario', 'test', '--png'], { cwd: process.cwd(), write: () => {} }), /--png requires --render/);
+});
+
+test('scenario test fails before core access when its scenario directory is empty', async () => {
+  const destination = join(tmpdir(), `sealwrapper-empty-scenarios-${Date.now()}`);
+  await mkdir(join(destination, 'tests', 'scenarios'), { recursive: true });
+  await assert.rejects(
+    () => runCli(['scenario', 'test'], { cwd: destination, write: () => {} }),
+    /No scenario files found under tests\/scenarios/,
+  );
 });

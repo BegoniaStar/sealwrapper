@@ -10,7 +10,7 @@ function outputEvents(transcript: any): any[] {
 }
 
 function canonicalTimestamp(value: unknown, label: string): string {
-  invariant(typeof value === 'string' && Number.isFinite(Date.parse(value)), `${label} must be an ISO-8601 timestamp`);
+  invariant(typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) && Number.isFinite(Date.parse(value)), `${label} must be an ISO-8601 timestamp`);
   return new Date(value).toISOString();
 }
 
@@ -187,7 +187,9 @@ export function normalizeScenario(raw: unknown): any {
     }
   } else scenario.users = {};
   scenario.messages = scenario.messages.map((message: any, index: number) => {
-    const normalized: Record<string, any> = { ...object(message, `scenario.messages[${index}]`), sequence: Number(message.sequence ?? index + 1) };
+    const rawMessage = object(message, `scenario.messages[${index}]`);
+    if (rawMessage.sequence !== undefined) invariant(Number.isSafeInteger(rawMessage.sequence) && rawMessage.sequence > 0, `scenario.messages[${index}].sequence must be a positive safe integer`);
+    const normalized: Record<string, any> = { ...rawMessage, sequence: rawMessage.sequence ?? index + 1 };
     if (normalized.qq !== undefined) invariant(typeof normalized.qq === 'string' && /^\d+$/.test(normalized.qq), `scenario.messages[${index}].qq must be a numeric fake QQ ID`);
     else normalized.qq = '10000';
     if (normalized.scope !== undefined) invariant(normalized.scope === 'group' || normalized.scope === 'private', `scenario.messages[${index}].scope must be group or private`);
@@ -210,7 +212,11 @@ export function normalizeScenario(raw: unknown): any {
     }
     if (message.text === undefined && Array.isArray(message.segments)) message.text = message.segments.filter((segment: any) => segment.type === 'text').map((segment: any) => segment.text).join('');
     invariant(typeof message.text === 'string', 'scenario message text must be a string unless text segments provide it');
-    if (!message.timestamp) message.timestamp = new Date(Date.parse(scenario.clock) + (message.sequence - 1) * 1000).toISOString();
+    if (message.timestamp === undefined) {
+      const timestamp = Date.parse(scenario.clock) + (message.sequence - 1) * 1000;
+      invariant(Number.isFinite(timestamp) && Math.abs(timestamp) <= 8.64e15, `scenario.messages[${message.sequence}].timestamp is outside the representable date range`);
+      message.timestamp = new Date(timestamp).toISOString();
+    }
   }
   if (scenario.packages !== undefined) {
     invariant(Array.isArray(scenario.packages) && scenario.packages.every((item) => typeof item === 'string' && item.endsWith('.sealpack') && !item.includes('..') && !item.startsWith('/')), 'scenario.packages must contain archive-relative .sealpack paths');
