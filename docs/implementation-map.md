@@ -1,21 +1,24 @@
 # Sealwrapper 实现与测试映射
 
 本表把 `sealpack-resource-design.md` 的批准设计映射到本仓库的实现。
-目标固定为 SealDice `1.6.0`；不会读取旧配置、裸 JS 制品或
-`extension.json`。`reference/sealdice-core` 仅作为设计/审计输入，工具只
-操作项目自己的 `.seal/core/`。
+当前 registry 只有 SealDice `1.6.0`，但实现按 target registry 设计；每个
+未来 target 都必须随 core provenance、bridge overlay、API contract 和 trust
+descriptor 一起进入新的 sealwrapper 发布。不会读取裸 JS 制品、`extension.json`
+或旧 schema/lock；项目和锁文件统一使用 v2。工具只操作项目自己的
+`.seal/core/<target>/`。
 
 | 设计条目 | 实现模块 | 主要回归测试 |
 | --- | --- | --- |
-| P0 exact target、schema v1、sealpack-only | `src/config.ts`、`src/cli.ts` | `tests/unit/config-stage.test.ts`、`tests/unit/cli.test.ts` |
+| P0 registry target、schema v2、sealpack-only | `src/pinned-target.ts`、`src/config.ts`、`src/cli.ts` | `tests/unit/target-matrix.test.ts`、`tests/unit/config-stage.test.ts`、`tests/unit/cli.test.ts` |
 | 安全资源发现、可选 bundle、manifest 与确定性 ZIP | `src/stage.ts`、`src/build.ts`、`src/archive.ts` | `tests/unit/config-stage.test.ts`、`tests/unit/archive.test.ts` |
-| 受管 mirror / detached worktree / test-only overlay / provenance | `src/lock.ts`、`src/trust.ts`、`src/core.ts`、`src/bridge.ts` | `tests/unit/core.test.ts`、`tests/integration/core-bridge.test.ts` |
+| 受管 target-scoped mirror / detached worktree / test-only overlay / provenance | `src/lock.ts`、`src/trust.ts`、`src/core.ts`、`src/bridge.ts`、`src/release.ts` | `tests/unit/core.test.ts`、`tests/unit/target-matrix.test.ts`、`tests/integration/core-bridge.test.ts` |
 | bridge 严格资源检查、真实 Install → Enable → Reload | `patches/sealdice-core/1.6.0/0001-test-only-bridge.patch` | `tests/integration/managed-core.test.ts`（设 `SEALWRAPPER_CORE_INTEGRATION=1`） |
 | fake QQ、连续场景、CQ 输入、`#{SPLIT}` 多段输出 | `src/scenario.ts`、bridge overlay | `tests/unit/p1-p2.test.ts`、`tests/integration/managed-core.test.ts`、`examples/*/tests/scenarios/` |
 | QQ transcript、离线 SVG/HTML/PNG、identity cache | `src/identity.ts`、`src/renderer.ts`、`src/reports.ts`、`src/png.ts` | `tests/unit/identity-report.test.ts`、`tests/unit/renderer.test.ts`、`tests/unit/png.test.ts` |
 | P1 helpdoc / templates capability | `src/capabilities.ts`、`src/stage.ts`、bridge overlay | `tests/unit/p1-p2.test.ts`、`tests/integration/managed-core.test.ts` |
 | P2 SARIF、release provenance、签名与 trust rotation | `src/sarif.ts`、`src/release.ts`、`src/trust.ts` | `tests/unit/p1-p2.test.ts`、`tests/unit/core.test.ts` |
-| P2 exact-target TypeScript contract | `tools/seal-api-scan/`、`src/api-contract.ts`、`src/types.ts` | `tests/unit/api-contract.test.ts`、`tests/unit/types.test.ts`、`npm run test:api-scanner` |
+| P2 target-specific TypeScript contract | `tools/seal-api-scan/`、`src/api-contract.ts`、`src/types.ts` | `tests/unit/api-contract.test.ts`、`tests/unit/types.test.ts`、`npm run test:api-scanner` |
+| Typed CLI actions, generated help and TTY-only progress | `src/cli.ts`、`src/progress.ts`、`tools/package-cli.mjs` | `tests/unit/cli.test.ts`、`tests/unit/cli-edge.test.ts`、`tests/unit/progress.test.ts`、`npm run build` |
 | 可运行的迁移/混合示例及报告导出 | `examples/`、`tools/test-examples.ts` | `tests/unit/examples.test.ts`、`npm run test:examples` |
 
 ## 验证层级

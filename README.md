@@ -1,8 +1,18 @@
 # sealwrapper
 
 `sealwrapper` (`sealw`) is a Node/TypeScript, sealpack-only development tool
-for exact SealDice `1.6.0`. It has no bare-JS or compatibility-target release
-path and distributes no core, bridge, or validator binaries.
+for registry-backed SealDice targets. The current registry contains only
+`1.6.0`; adding a future target is a signed sealwrapper release that adds its
+core provenance, bridge overlay, API contract, and trust descriptor together.
+The tool has no bare-JS release path and distributes no core, bridge, or
+validator binaries.
+
+The CLI uses `@rushstack/ts-command-line` for typed, strict action and
+parameter definitions. Existing two-word forms such as `core sync` and
+`scenario test` remain supported and are normalized to the internal action
+names. Long-running local operations show an `ora` spinner only on an
+interactive terminal; CI, redirected output, and calls that inject a writer
+remain silent and keep stdout stable.
 
 It supports optional JS bundles plus all five target-core content classes:
 `content/decks/`, `content/reply/`, `content/helpdoc/` (`.json`, `.xlsx`),
@@ -44,7 +54,7 @@ layers.
 
 ```sh
 # after installing this tool as the project's locked dev dependency
-sealw core sync --target 1.6.0
+sealw core sync --target 1.6.0       # omit --target to use the lock default
 sealw types sync --target 1.6.0
 sealw types verify --target 1.6.0
 sealw types audit --target 1.6.0
@@ -56,8 +66,62 @@ sealw scenario test --target 1.6.0 --snapshot
 sealw scenario test --target 1.6.0 --release
 sealw scenario test --target 1.6.0 --render --png --theme dark --style compact --members
 sealw watch --target 1.6.0
-sealw package --target 1.6.0 --sign-key keys/release.pem --sign-key-id maintainer-2026
+sealw package --sign-key keys/release.pem --sign-key-id maintainer-2026
 ```
+
+`package`, `resource check`, and `test` run every target in
+`sealDice.buildTarget` when `--target` is omitted, so a matrix gate cannot hide
+a target-specific failure. One archive is released only after every selected
+target passes typecheck, resource validation, and Install → Enable → Reload.
+Supplying `--target` narrows a local gate to one registered target; commands
+that materialize one core or declaration use the configured default when it is
+omitted.
+
+## Target matrix and lockfile
+
+New projects use schema v2:
+
+```json
+{
+  "schemaVersion": 2,
+  "sealDice": {
+    "buildTarget": ["1.6.0"],
+    "defaultTarget": "1.6.0"
+  },
+  "sealpack": {
+    "minSealDice": "1.6.0"
+  }
+}
+```
+
+When a later target is published, a project can opt into both with
+`"buildTarget": ["1.6.0", "1.7.0"]`. `minSealDice` is the lowest selected
+SemVer target because SealDice markets interpret it as `>= min_version`.
+There is no separate `compatibilityTargets` field: the target list is the
+single source of truth for build and release compatibility.
+Because the market expression has no upper bound, adding a new registry target
+should be treated as a release-gate update: add it to `buildTarget`, refresh
+its lock/core/type assets, and run `package` before claiming support for that
+host version.
+
+`seal.lock` v2 records the registry version, target set, default target, and a
+complete signed descriptor for every target. v2 is the only supported project
+and lock format; v1 files are rejected so the implementation has one clear
+validation path. Managed state is isolated at
+`.seal/core/<target>/mirror.git`, `.seal/core/<target>/worktree`, and
+`.seal/core/<target>/state.json`, so two target checkouts cannot overwrite one
+another. After editing an old project to the v2 shape, remove its old lock and
+run `sealw lock update --allow-dirty` to write the current lock descriptor.
+
+Maintainers add a target to the immutable `targetRegistry` in
+`src/pinned-target.ts`, then add the matching `api/sealdice/<target>/`,
+`types/sealdice/<target>/`, and `patches/sealdice-core/<target>/` assets. The
+descriptor is trust-signed as one unit; projects can select the new ID only
+after that sealwrapper release is available.
+
+Use `sealw --help` or `sealw scenario test --help` for generated command and
+parameter documentation. Unknown options and unsupported choice values fail
+before project or managed-core work begins.
 
 For a checkout-wide verification, use the same pinned toolchain:
 
@@ -75,21 +139,22 @@ checks resources, and executes every release-marked scenario with offline
 JSON/SVG/HTML/PNG reports. Use
 `npm run test:examples -- --plan` to inspect the plan without touching a core
 checkout. `test:examples:offline` is intentionally cache-only: it requires each
-selected example to already have a verified `.seal/core/` and uses offline
+selected example to already have verified `.seal/core/<target>/` directories and uses offline
 identity/report resolution; it never clones or fetches a mirror.
 
-`core sync` creates only `.seal/core/`: a lock-owned bare mirror and detached
-worktree at `b06a2d92a7af0b8b33be33390206297edf29c7bd`. It applies the locked
-test-only overlay and uses local Go `1.25.0` to run `go test`; it never accepts
+`core sync` creates only the selected target's `.seal/core/<target>/` directory:
+a lock-owned bare mirror and detached worktree at the descriptor's pinned
+commit. It applies the locked test-only overlay and uses that target's pinned
+Go toolchain to run `go test`; it never accepts
 or edits a user-supplied core checkout or the template reference checkout.
 The source declares `1.5.1-dev`, while the locked official runtime is
 `1.6.0+20260726`; every bridge result reports both instead of concealing the
 mismatch.
 
 For JavaScript-bearing projects, `init` writes a normal `tsconfig.json` and a
-managed exact-target declaration at `.seal/types/sealdice-1.6.0.d.ts`.
-`sealw types sync` refreshes that declaration from sealwrapper's checked-in,
-generated SealDice `1.6.0` API contract; `types verify` detects edits or stale
+managed target declaration at `.seal/types/sealdice-<target>.d.ts`.
+`sealw types sync` refreshes that declaration from the selected target's
+checked-in generated API contract; `types verify` detects edits or stale
 output. The contract itself is generated from a deterministic Go AST inventory
 of the lock-managed core plus a reviewed semantic declaration template.
 `sealw types audit` rescans an existing managed core and fails on API drift.
@@ -114,12 +179,16 @@ the only assertion format. Use `messages[].segments` for structured fake QQ
 input; common inbound CQ text (`[CQ:at,...]`, `[CQ:face,...]`,
 `[CQ:image,...]`) is safely normalized to the same segments without fetching
 any referenced resource.
+When more than one target is selected, snapshots and rendered report names
+include the target ID (for example, `scenario.json.1.7.0.snapshot.json`) so
+transcripts from different host contracts cannot overwrite one another.
 
 The lock contains an Ed25519-signed test-overlay descriptor and an explicit
 HTTPS mirror set. `core sync` will only use that signed set; an alternate
 mirror can supply Git objects but cannot change the canonical `origin`, commit,
 patches or Go source build. A release provenance file accompanies each package
-and records archive, lock, core, overlay, trust-key and patch data. Passing
+and records the complete target matrix plus archive, lock, core, overlay,
+trust-key and patch data. Passing
 `--sign-key` additionally signs that provenance file with a local Ed25519 key;
 the private key is never copied into a report or `.sealpack`.
 

@@ -1,7 +1,10 @@
 # SealDice Type Contract
 
-sealwrapper supports one exact host target: SealDice `1.6.0`. Its TypeScript
-declaration is reproducible, but not blindly inferred from Go types.
+sealwrapper keeps one reviewed TypeScript contract per registered SealDice
+target. The current registry contains `1.6.0`; a future target adds a sibling
+directory under `api/sealdice/<target>/` and `types/sealdice/<target>/` in the
+same signed tool release. A declaration is reproducible, but not blindly
+inferred from Go types.
 
 ## Inputs and Outputs
 
@@ -9,14 +12,14 @@ declaration is reproducible, but not blindly inferred from Go types.
   files using `go/parser`. It reads `Dice.JsInit`, nested `seal.Set(...)`
   objects, function signatures, arity, source locations, and `jsbind` fields.
   It neither imports nor builds core.
-- `api/sealdice/1.6.0/inventory.json` is the committed AST inventory.
-- `api/sealdice/1.6.0/seal.d.ts.template` is the reviewed semantic layer for
+- `api/sealdice/<target>/inventory.json` is the committed AST inventory.
+- `api/sealdice/<target>/seal.d.ts.template` is the reviewed semantic layer for
   JavaScript behaviour Go signatures cannot express: optional arguments,
   nullability, callbacks, Goja conversion, and dynamic objects.
-- `api/sealdice/1.6.0/semantic-override.json` records the target and any
+- `api/sealdice/<target>/semantic-override.json` records the target and any
   explicitly justified source-only or declaration-only paths.
-- `types/sealdice/1.6.0/seal.d.ts` and
-  `api/sealdice/1.6.0/report.md` are generated outputs.
+- `types/sealdice/<target>/seal.d.ts` and
+  `api/sealdice/<target>/report.md` are generated outputs.
 
 The renderer rejects an extracted API missing from the declaration, a declared
 `seal.*` member absent from the inventory, incompatible kinds, and TypeScript
@@ -26,7 +29,8 @@ API fingerprint.
 
 ## Workflow
 
-Normal plugin authors use only the reviewed output:
+Normal plugin authors select one target when a command needs a single
+declaration. Omitting `--target` uses the project's `defaultTarget`:
 
 ```sh
 sealw types sync --target 1.6.0
