@@ -1,32 +1,45 @@
 # sealwrapper
 
-`sealwrapper` (`sealw`) is a Node/TypeScript, sealpack-only development tool
-for registry-backed SealDice targets. The current registry contains only
-`1.6.0`; adding a future target is a signed sealwrapper release that adds its
-core provenance, bridge overlay, API contract, and trust descriptor together.
-The tool has no bare-JS release path and distributes no core, bridge, or
-validator binaries.
+`sealwrapper`（命令名 `sealw`）是为 [SealDice](https://github.com/sealdice/sealdice-core)
+`sealpack` 插件准备的开发与发布工具。它负责构建可复现的 `.sealpack`、使用受管
+SealDice 核心校验包内容，并提供 TypeScript 类型契约、确定性 fake-QQ 场景、离线报告
+和发布溯源信息。
 
-The CLI uses `@rushstack/ts-command-line` for typed, strict action and
-parameter definitions. Existing two-word forms such as `core sync` and
-`scenario test` remain supported and are normalized to the internal action
-names. Long-running local operations show an `ora` spinner only on an
-interactive terminal; CI, redirected output, and calls that inject a writer
-remain silent and keep stdout stable.
+当前目标注册表只支持 SealDice `1.6.0`。项目始终是 sealpack-only：工具不会发布裸
+JavaScript 扩展、不会接收用户指定的核心目录，也不会分发 SealDice 核心、桥接器或
+验证器二进制文件。
 
-It supports optional JS bundles plus all five target-core content classes:
-`content/decks/`, `content/reply/`, `content/helpdoc/` (`.json`, `.xlsx`),
-`content/templates/` (`.yaml`, `.yml`, `.json`), and `assets/`.
+[English README](README.en.md) | [文档目录](docs/README.md)
 
-The repository pins its developer toolchain in [.mise.toml](.mise.toml):
-Node `26.5.0` and Go `1.25.0`. Install mise, then run `mise install` before
-using the npm scripts. The CLI itself still runs on Node/TypeScript; Go is only
-compiled from the lock-managed core source for the test bridge and scanner.
+## 能做什么
 
-## Installation
+- 初始化 JavaScript、纯资源或混合型 SealDice 插件项目。
+- 在 `seal.lock` v3 中锁定每个目标的核心提交、测试专用 bridge overlay、API 契约和
+  信任描述符。
+- 打包可选 JavaScript bundle，以及 `decks`、`reply`、`helpdoc`、`templates` 和
+  `assets` 五类受支持内容。
+- 以目标专属的 `seal.*` 声明检查插件 TypeScript 代码。
+- 用受管核心完成严格资源检查和真实的 Install -> Enable -> Reload 冒烟测试。
+- 运行确定性的 fake-QQ 场景、快照、封闭 HTTP mock，以及离线 JSON/SVG/HTML/PNG
+  聊天记录报告。
+- 生成确定性归档、SHA-256 校验和、发布溯源文件，并可选用 Ed25519 签名溯源文件。
 
-The current release is a private Git package rather than an npm-registry
-package. Install it from a checkout:
+## 环境要求
+
+仓库的 [`.mise.toml`](.mise.toml) 固定了开发工具链：
+
+| 工具 | 要求版本 | 用途 |
+| --- | --- | --- |
+| Node.js | `>=26.5.0 <27` | CLI、打包、TypeScript 和测试 |
+| Go | `1.25.0` | 受管核心 bridge 与 API scanner |
+| Git | `PATH` 中可用 | 锁定核心的镜像与 worktree |
+
+请优先使用 [mise](https://mise.jdx.dev/)。即使系统安装了更高版本的 Go，也不会通过
+检查：bridge 必须使用所选目标锁定的精确 Go 版本。
+
+## 安装
+
+当前版本通过私有 Git 仓库提供。在工具仓库目录中执行：
 
 ```sh
 git clone https://github.com/BegoniaStar/sealwrapper.git
@@ -36,99 +49,83 @@ mise exec -- npm ci
 mise exec -- ./sealw --help
 ```
 
-To install the compiled CLI globally from that checkout, run:
+需要在其他目录直接使用 `sealw` 时，可安装编译后的全局 CLI：
 
 ```sh
 mise exec -- npm install -g .
-mise exec -- sealw --help
+sealw --help
 ```
 
-`npm install -g git+https://...` additionally requires npm's `allow-git` setting
-to permit Git dependencies. The first `core sync` also needs Git, Go `1.25.0`,
-and network access to the lock-pinned mirror; `--offline` works only after that
-core is cached and verified.
+第一次运行 `core sync` 需要联网、Git 和 Go `1.25.0`，以获取锁定的核心。`--offline`
+不会下载任何内容，只有本地已经存在通过验证的受管核心时才能成功。
 
-The concise [implementation and test map](docs/implementation-map.md) ties
-the approved P0/P1/P2 design requirements to their modules and regression
-layers.
+## 五分钟开始
+
+下面的命令创建一个混合型插件；`--no-sync` 让初始化步骤本身不下载核心。示例假设你
+已经按上节安装了全局 `sealw`：
 
 ```sh
-# after installing this tool as the project's locked dev dependency
-sealw core sync --target 1.6.0       # omit --target to use the lock default
-sealw types sync --target 1.6.0
-sealw types verify --target 1.6.0
-sealw types audit --target 1.6.0
-sealw typecheck --target 1.6.0
-sealw resource check --target 1.6.0
-sealw resource check --target 1.6.0 --sarif .seal/reports/resources.sarif
-sealw test --target 1.6.0
-sealw scenario test --target 1.6.0 --snapshot
-sealw scenario test --target 1.6.0 --release
-sealw scenario test --target 1.6.0 --render --png --theme dark --style compact --members
-sealw watch --target 1.6.0
-sealw package --sign-key keys/release.pem --sign-key-id maintainer-2026
+sealw init my-first-plugin --kind hybrid --no-sync
+cd my-first-plugin
+sealw doctor
+sealw core sync
+sealw types sync
+sealw typecheck
+sealw resource check
+sealw test
+sealw package
 ```
 
-`package`, `resource check`, and `test` run every target in
-`sealDice.buildTarget` when `--target` is omitted, so a matrix gate cannot hide
-a target-specific failure. One archive is released only after every selected
-target passes typecheck, resource validation, and Install → Enable → Reload.
-Supplying `--target` narrows a local gate to one registered target; commands
-that materialize one core or declaration use the configured default when it is
-omitted.
+`init` 会生成 `seal.config.json`、`seal.lock`、`README.md`、忽略 `.seal/` 的规则、
+源码入口以及最小单元测试。随后在 `src/index.ts` 注册指令，在 `tests/scenarios/` 写入
+场景 JSON，再发布。完整过程请看[从零开始](docs/quickstart.md)。
 
-## Target matrix and lockfile
+## 常用工作流
 
-New projects use schema v2:
+| 目的 | 命令 |
+| --- | --- |
+| 检查本机工具链 | `sealw doctor` |
+| 同步或验证受管核心 | `sealw core sync` / `sealw core verify` |
+| 同步或验证目标声明 | `sealw types sync` / `sealw types verify` |
+| 检查插件源码 | `sealw typecheck` |
+| 构建并校验资源 | `sealw resource check` |
+| 在受管宿主中测试安装 | `sealw test` |
+| 运行 fake-QQ 场景 | `sealw scenario test` |
+| 修改源码时重建本地 staging | `sealw watch` |
+| 通过全部门禁后发布 | `sealw package` |
 
-```json
-{
-  "schemaVersion": 2,
-  "sealDice": {
-    "buildTarget": ["1.6.0"],
-    "defaultTarget": "1.6.0"
-  },
-  "sealpack": {
-    "minSealDice": "1.6.0"
-  }
-}
+未传 `--target` 时，包校验命令会运行 `sealDice.buildTarget` 中的每个目标；需要单个
+声明或核心的命令则使用 `sealDice.defaultTarget`。可随时用 `sealw <命令> --help` 查看
+当前版本可接受的参数。文档采用 `core sync`、`scenario test` 这类双词形式。
+
+## 使用文档
+
+- [从零创建第一个插件](docs/quickstart.md)
+- [配置包、内容与目标矩阵](docs/configuration.md)
+- [开发、类型检查、资源检查和测试](docs/development-and-testing.md)
+- [编写场景并导出报告](docs/scenario-testing.md)
+- [发布、签名与 CI](docs/release-and-ci.md)
+- [维护目标 API 契约](docs/type-contract.md)
+- [实现模块与测试映射](docs/implementation-map.md)
+
+## 示例
+
+[`examples/`](examples/) 中的每个目录都是可以独立运行的包。建议先看小型的
+[`004-custom-command`](examples/004-custom-command/)，然后阅读混合型示例
+[`adventure-prompts`](examples/adventure-prompts/)。其余示例覆盖存储、上下文数据、
+代骰、HTTP mock、自定义规则，以及迁移后的
+[`lightscript-loader`](examples/lightscript-loader/)。
+
+执行全部示例回归：
+
+```sh
+mise exec -- npm run test:examples
 ```
 
-When a later target is published, a project can opt into both with
-`"buildTarget": ["1.6.0", "1.7.0"]`. `minSealDice` is the lowest selected
-SemVer target because SealDice markets interpret it as `>= min_version`.
-There is no separate `compatibilityTargets` field: the target list is the
-single source of truth for build and release compatibility.
-Because the market expression has no upper bound, adding a new registry target
-should be treated as a release-gate update: add it to `buildTarget`, refresh
-its lock/core/type assets, and run `package` before claiming support for that
-host version.
+`mise exec -- npm run test:examples -- --plan` 只显示计划，不同步核心；
+`test:examples:offline` 则要求每个示例都已有通过验证的本地核心缓存。
 
-`seal.lock` v3 records the registry version, target set, default target, and a
-complete signed descriptor for every target. v3 is the only supported project
-and lock format; older files must be explicitly rewritten with
-`sealw lock update` so a trust-root or registry migration is reviewable rather
-than silently substituted. Managed state is isolated at
-`.seal/core/<target>/mirror.git`, `.seal/core/<target>/worktree`, and
-`.seal/core/<target>/state.json`, so two target checkouts cannot overwrite one
-another. A v2 lock can be migrated in place with
-`sealw lock update --allow-dirty`; the command reports the lock and registry
-version changes before writing the current descriptor.
-
-Maintainers add a target to the immutable `targetRegistry` in
-`src/pinned-target.ts`, then add the matching `api/sealdice/<target>/`,
-`types/sealdice/<target>/`, and `patches/sealdice-core/<target>/` assets. The
-descriptor is trust-signed as one unit; projects can select the new ID only
-after that sealwrapper release is available.
-
-Use `sealw --help` or `sealw scenario test --help` for generated command and
-parameter documentation. Unknown options and unsupported choice values fail
-before project or managed-core work begins.
-All commands except `package` also accept `--format text|json|junit`. Text is
-the default; JSON emits one `sealwrapper.cli/v1` envelope and JUnit emits one
-JUnit suite, so CI can consume every command through the same interface.
-
-For a checkout-wide verification, use the same pinned toolchain:
+## 验证本仓库
 
 ```sh
 mise install
@@ -136,96 +133,10 @@ mise exec -- npm ci
 mise exec -- npm run check
 ```
 
-`check` runs the build/type gate, source lint, unit tests with coverage
-thresholds, Go API scanner, required managed-core integration, and the full
-example regression. `test:examples` discovers every `examples/*/seal.config.json`, prepares its
-lock-managed core, syncs and verifies generated types, runs project unit tests,
-checks resources, and executes every release-marked scenario with offline
-JSON/SVG/HTML/PNG reports. Use
-`npm run test:examples -- --plan` to inspect the plan without touching a core
-checkout. `test:examples:offline` is intentionally cache-only: it requires each
-selected example to already have verified `.seal/core/<target>/` directories and uses offline
-identity/report resolution; it never clones or fetches a mirror.
+`check` 会构建 CLI、检查源码格式、执行带覆盖率门槛的单元测试、运行 Go API scanner、
+要求受管核心集成测试，并执行全部示例。CI 还会安装 Noto CJK 字体和 `rsvg-convert`，
+以生成可复现的离线 PNG 报告。
 
-`core sync` creates only the selected target's `.seal/core/<target>/` directory:
-a lock-owned bare mirror and detached worktree at the descriptor's pinned
-commit. It applies the locked test-only overlay and uses that target's pinned
-Go toolchain to run `go test`; it never accepts
-or edits a user-supplied core checkout or the template reference checkout.
-The source declares `1.5.1-dev`, while the locked official runtime is
-`1.6.0+20260726`; every bridge result reports both instead of concealing the
-mismatch.
-Before touching managed state, `core sync` and `doctor` probe Node, Git, and
-every Go version selected by the lock and report all missing or mismatched
-tools together.
+## 许可证
 
-For JavaScript-bearing projects, `init` writes a normal `tsconfig.json` and a
-managed target declaration at `.seal/types/sealdice-<target>.d.ts`.
-`sealw types sync` refreshes that declaration from the selected target's
-checked-in generated API contract; `types verify` detects edits or stale
-output. The contract itself is generated from a deterministic Go AST inventory
-of the lock-managed core plus a reviewed semantic declaration template.
-`sealw types audit` rescans an existing managed core and fails on API drift.
-Maintainers may explicitly run `sealw types update --write` after review to
-rewrite the inventory, generated declaration, and audit report.
-The [type-contract maintenance guide](docs/type-contract.md) describes the
-AST inventory, semantic layer, drift checks, and CI workflow.
-`sealw typecheck` checks `src/` against it without emitting JavaScript, and
-`sealw package` runs the same check before its resource and host gates. The
-managed declaration is ignored by Git and never enters a `.sealpack`.
-
-Scenario JSON supports deterministic `clock` and `seed`, project-wide and
-per-user variables, ordered multi-user group/private messages, additional
-`.sealpack` files in `packages`, output/no-output assertions, diagnostic
-assertions, and transcript snapshots. A scenario is one continuous core
-session: each input is dispatched, all of its replies are collected, then the
-next input is dispatched. `inReplyToSequence` always refers to the author-set
-input ID; `transcriptSequence` is the stable chat timeline used by the
-renderer. The bridge preserves core `#{SPLIT}` behaviour, so one input can
-legitimately produce several consecutive output events. JSON transcripts are
-the only assertion format. Use `messages[].segments` for structured fake QQ
-input; common inbound CQ text (`[CQ:at,...]`, `[CQ:face,...]`,
-`[CQ:image,...]`) is safely normalized to the same segments without fetching
-any referenced resource.
-When more than one target is selected, snapshots and rendered report names
-include the target ID (for example, `scenario.json.1.7.0.snapshot.json`) so
-transcripts from different host contracts cannot overwrite one another.
-
-Network permissions are opt-in: the generated manifest defaults to
-`network: false`. For a package that declares `network: true`, the test bridge
-uses a hermetic HTTP mock rather than the real Internet. A request must target
-one of the manifest's `networkHosts` and match a scenario-declared route,
-including method, URL, headers, and body; HTTPS CONNECT is also denied by this
-HTTP-only bridge. Otherwise it fails closed. Matched
-requests and fixed responses are recorded in the JSON transcript, so a passing
-scenario proves the fetch path without granting external network access.
-
-The lock contains an Ed25519-signed test-overlay descriptor and an explicit
-HTTPS mirror set. `core sync` will only use that signed set; an alternate
-mirror can supply Git objects but cannot change the canonical `origin`, commit,
-patches or Go source build. A release provenance file accompanies each package
-and records the complete target matrix plus archive, lock, core, overlay,
-trust-key and patch data. Passing
-`--sign-key` additionally signs that provenance file with a local Ed25519 key;
-the private key is never copied into a report or `.sealpack`.
-
-`scenario test --render` writes JSON, SVG, HTML, identity metadata, and any
-frozen avatars only under `.seal/reports/`; add `--png` to rasterize the frozen
-SVG with local `rsvg-convert` (or ImageMagick `magick`) without starting a
-browser. SVG/HTML declare `Noto Serif CJK SC, Noto Serif CJK, serif`; install
-Noto CJK locally when you need pixel-consistent PNG output. Those diagnostic artifacts do not
-affect scenario assertions, lockfiles, sealpacks, checksums, or release gates.
-
-`package` runs strict resource validation and real Install → Enable → Reload
-before it creates a release. Archive, checksum, provenance and any signature
-are prepared under `.seal/`; only then is the complete non-overwriting release
-set published. A signing/provenance failure leaves no new release artifact or
-checksum. The bridge limits ZIP entry count, compressed and expanded sizes,
-and each entry's compression ratio (100:1).
-
-For CI, mark scenario JSON with `"release": true` and run
-`sealw scenario test --release`. Explicit cooldown, priority and seeded random
-assertions are evaluated against the fake-QQ JSON transcript. `watch` is a
-local JS-staging helper only: it does not contact or reload a host. A runnable
-[mixed deck/reply/JS example](examples/adventure-prompts/) includes a pinned
-lock and real fake-QQ scenarios for both JSON-deck call paths.
+[MIT](LICENSE)
