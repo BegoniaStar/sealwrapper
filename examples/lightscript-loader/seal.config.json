@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": {
     "name": "SealDice LightScript Loader",
     "version": "1.0.0",
@@ -14,7 +14,7 @@
     "bundleFileName": "lightscript-loader.js"
   },
   "sealDice": {
-    "profiles": [{ "id": "1.6.0", "kind": "exact" }],
+    "buildTarget": ["1.6.0"],
     "defaultTarget": "1.6.0"
   },
   "release": {

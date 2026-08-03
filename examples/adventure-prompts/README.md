@@ -1,6 +1,6 @@
 # 城市冒险灵感
 
-这是一个完整的 schema-v1 混合 `.sealpack` 示例：
+这是一个完整的 schema-v2 混合 `.sealpack` 示例：
 
 - `content/decks/adventure-prompts.json` 是一个 JSON 牌堆，导出 `冒险灵感` 牌组；
 - `content/reply/adventure.yaml` 使用 `#{DRAW-冒险灵感}`，由真实 core 的牌堆 matcher 抽取内容；

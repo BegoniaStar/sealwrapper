@@ -15,9 +15,9 @@ import { pinnedTarget } from '../../src/pinned-target.ts';
 
 function config(): any {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     package: { name: 'P1 fixture', version: '1.0.0', authors: ['Tester'], license: 'MIT', description: '', homepage: '' },
-    sealDice: { profiles: [{ id: '1.6.0', kind: 'exact' }], defaultTarget: '1.6.0' },
+    sealDice: { buildTarget: ['1.6.0'], defaultTarget: '1.6.0' },
     release: { directory: 'release', checksum: 'sha256', artifactPolicy: { forbiddenPaths: [], forbiddenExtensions: [] } },
     sealpack: { packageId: 'tester/p1-fixture', minSealDice: '1.6.0', contents: { helpdoc: { source: 'content/helpdoc' }, templates: { source: 'content/templates' } }, dependencies: {}, permissions: { network: false, networkHosts: [], acknowledgeUnrestrictedNetwork: false, fileRead: [], fileWrite: [], dangerous: false, httpServer: false, ipc: [] }, readme: 'README.md', assets: [], store: { category: 'rules', icon: '', banner: '', screenshots: [] } },
   };
@@ -53,7 +53,7 @@ test('author mixed-package example is complete and lock-backed', async () => {
   assert.ok(staged.files.some((file) => file.path === 'scripts/adventure-prompts.js'));
 });
 
-test('LightScript Loader is migrated as a standalone schema-v1 sealpack with package-local assets', async () => {
+test('LightScript Loader is migrated as a standalone target-aware sealpack with package-local assets', async () => {
   const root = join(process.cwd(), 'examples', 'lightscript-loader');
   const config = await loadProjectConfig(root);
   const lock = await loadSealLock(root, process.cwd());
@@ -213,6 +213,10 @@ test('P2 release provenance binds an archive to core and test-only overlay lock 
   const target = await writeLockBackedTarget(root);
   const manifest = await writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target });
   const parsed = JSON.parse(await readFile(manifest, 'utf8'));
+  assert.equal(parsed.format, 'sealwrapper.release/v2');
+  assert.deepEqual(parsed.targetMatrix.buildTargets, ['1.6.0']);
+  assert.equal(parsed.targetMatrix.defaultTarget, '1.6.0');
+  assert.deepEqual(parsed.lock.buildTargets, ['1.6.0']);
   assert.equal(parsed.core.commit, pinnedTarget.core.commit);
   assert.equal(parsed.overlay.nonProductionEquivalent, false);
 });
@@ -232,6 +236,16 @@ test('release provenance refuses a missing or mismatched lock descriptor', async
   await assert.rejects(
     () => writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target: tampered }),
     /trust verification failed|does not match the complete seal\.lock descriptor|core\.commit/i,
+  );
+});
+
+test('release provenance rejects ambiguous single- and multi-target inputs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sealwrapper-provenance-target-input-'));
+  const artifact = join(root, 'fixture.sealpack');
+  await writeFile(artifact, 'archive');
+  await assert.rejects(
+    () => writeReleaseProvenance({ projectRoot: root, artifact, config: config(), target: pinnedTarget, targets: [pinnedTarget] }),
+    /either target or targets/i,
   );
 });
 

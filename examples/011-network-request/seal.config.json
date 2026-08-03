@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": { "name": "示例：网络请求", "version": "1.0.0", "authors": ["木落"], "license": "Apache-2.0", "description": "在 .musicsearch 中向授权音乐搜索 API 发起请求。", "homepage": "https://github.com/sealdice/javascript" },
   "build": { "entry": "src/index.ts", "ecmaTarget": "es6", "bundleFileName": "011-network-request.js" },
-  "sealDice": { "profiles": [{ "id": "1.6.0", "kind": "exact" }], "defaultTarget": "1.6.0" },
+  "sealDice": { "buildTarget": ["1.6.0"], "defaultTarget": "1.6.0" },
   "release": { "directory": "release", "checksum": "sha256", "artifactPolicy": { "forbiddenPaths": [], "forbiddenExtensions": [] } },
   "sealpack": {
     "packageId": "sealdice-js-examples/011-network-request", "minSealDice": "1.6.0", "contents": { "scripts": { "bundle": true, "path": "scripts/011-network-request.js" } }, "dependencies": {},

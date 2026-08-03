@@ -1,7 +1,13 @@
 {
-  "lockVersion": 1,
+  "lockVersion": 2,
+  "registryVersion": 1,
+  "buildTargets": [
+    "1.6.0"
+  ],
+  "defaultTarget": "1.6.0",
   "targets": {
     "1.6.0": {
+      "id": "1.6.0",
       "core": {
         "version": "1.6.0",
         "source": "https://github.com/sealdice/sealdice-core",

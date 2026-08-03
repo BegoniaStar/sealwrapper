@@ -1,10 +1,14 @@
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { access, link, lstat, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { SealwrapperError } from './errors.ts';
-import { overlayDigest } from './lock.ts';
+import { loadSealLock, lockedTarget, overlayDigest, type LockedTarget } from './lock.ts';
+import { compareTargetIds, type TargetDescriptor } from './pinned-target.ts';
 import { verifyTargetTrust } from './trust.ts';
+
+const toolRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -22,11 +26,30 @@ function releaseTimestamp() {
   return new Date(Number(epoch) * 1000).toISOString();
 }
 
-type LockBinding = { digest: string };
+type LockBinding = { digest: string; registryVersion: number; buildTargets: string[]; defaultTarget: string };
+
+function targetId(target: TargetDescriptor): string {
+  return target.id || target.core.version;
+}
+
+function targetWithDerivedDigest(target: TargetDescriptor): LockedTarget {
+  return { ...target, id: targetId(target), testOverlay: { ...target.testOverlay, digest: overlayDigest(target.testOverlay.patches) } } as LockedTarget;
+}
+
+function normalizeTargets(input: { target?: TargetDescriptor; targets?: readonly TargetDescriptor[] }): TargetDescriptor[] {
+  if (input.target && input.targets) throw new SealwrapperError('Release provenance accepts either target or targets, not both', 3);
+  const targets = input.targets ? [...input.targets] : input.target ? [input.target] : [];
+  if (targets.length === 0) throw new SealwrapperError('Release provenance requires at least one target', 3);
+  const ids = targets.map(targetId);
+  if (new Set(ids).size !== ids.length) throw new SealwrapperError('Release provenance targets must be unique', 3);
+  return [...targets].sort((left, right) => compareTargetIds(targetId(left), targetId(right)));
+}
 
 /** Read and bind the exact lock bytes used to produce a release. */
-async function lockBinding(projectRoot: string, target: any): Promise<LockBinding> {
-  try { verifyTargetTrust(target); } catch (error) { throw new SealwrapperError(`Release provenance target trust verification failed: ${(error as Error).message}`, 3); }
+async function lockBinding(projectRoot: string, targets: readonly TargetDescriptor[]): Promise<LockBinding> {
+  for (const target of targets) {
+    try { verifyTargetTrust(target); } catch (error) { throw new SealwrapperError(`Release provenance target ${targetId(target)} trust verification failed: ${(error as Error).message}`, 3); }
+  }
   const path = join(projectRoot, 'seal.lock');
   let stat;
   try { stat = await lstat(path); } catch (error: any) {
@@ -41,30 +64,20 @@ async function lockBinding(projectRoot: string, target: any): Promise<LockBindin
   try { raw = JSON.parse(bytes.toString('utf8')); } catch (error: any) {
     throw new SealwrapperError(`seal.lock is not valid JSON for release provenance: ${error?.message ?? error}`, 3);
   }
-  const locked = raw?.targets?.['1.6.0'];
-  if (!raw || raw.lockVersion !== 1 || !raw.targets || Object.keys(raw.targets).length !== 1 || !locked?.core || !locked?.testOverlay) throw new SealwrapperError('seal.lock has no exact 1.6.0 target for release provenance', 3);
-  const coreFields = ['version', 'source', 'commit', 'runtimeVersion', 'sourceDeclaredVersion', 'releaseArtifactSha256'];
-  for (const field of coreFields) {
-    if (target?.core?.[field] !== locked.core[field]) throw new SealwrapperError(`Release provenance target does not match seal.lock core.${field}`, 3);
+  if (!raw || !raw.targets) throw new SealwrapperError('seal.lock has no targets for release provenance', 3);
+  const lock = await loadSealLock(projectRoot, toolRoot);
+  for (const target of targets) {
+    const id = targetId(target);
+    const locked = lockedTarget(lock, id);
+    const normalizedTarget = targetWithDerivedDigest(target);
+    if (stable(normalizedTarget) !== stable(locked)) throw new SealwrapperError(`Release provenance target ${id} does not match the complete seal.lock descriptor`, 3);
   }
-  if (!/^sha256:[0-9a-f]{64}$/.test(locked.core.releaseArtifactSha256)) throw new SealwrapperError('seal.lock core.releaseArtifactSha256 is invalid for release provenance', 3);
-  const overlayFields = ['id', 'protocol', 'goVersion', 'capabilitiesSha256'];
-  for (const field of overlayFields) {
-    if (target?.testOverlay?.[field] !== locked.testOverlay[field]) throw new SealwrapperError(`Release provenance target does not match seal.lock testOverlay.${field}`, 3);
-  }
-  if (!Array.isArray(locked.testOverlay.patches) || !Array.isArray(target?.testOverlay?.patches) || stable(target.testOverlay.patches) !== stable(locked.testOverlay.patches)) {
-    throw new SealwrapperError('Release provenance target overlay patches do not match seal.lock', 3);
-  }
-  const digest = overlayDigest(locked.testOverlay.patches);
-  if (target.testOverlay.digest !== digest) throw new SealwrapperError('Release provenance target overlay digest does not match seal.lock', 3);
-  if (target?.trust?.activeKeyId !== locked?.trust?.activeKeyId) throw new SealwrapperError('Release provenance target trust key does not match seal.lock', 3);
-  // Bind all remaining signed lock fields as well (mirror policy, trust keys,
-  // rotations, and capability declarations), not only the values rendered in
-  // the human-readable manifest.  The loader adds the computed overlay digest
-  // to its target, so add the same derived field to the raw lock shape first.
-  const normalizedLocked = { ...locked, testOverlay: { ...locked.testOverlay, digest } };
-  if (stable(target) !== stable(normalizedLocked)) throw new SealwrapperError('Release provenance target does not match the complete seal.lock descriptor', 3);
-  return { digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}` };
+  return {
+    digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    registryVersion: lock.registryVersion,
+    buildTargets: [...lock.buildTargets].sort(compareTargetIds),
+    defaultTarget: lock.defaultTarget,
+  };
 }
 
 async function releaseSignature(manifest: any, signingKeyPath?: string, signingKeyId?: string) {
@@ -79,19 +92,40 @@ async function releaseSignature(manifest: any, signingKeyPath?: string, signingK
  * deliberately parses the private key here: a malformed signing key cannot
  * leave a newly-created archive or checksum behind.
  */
-export async function renderReleaseProvenance({ projectRoot, artifact, config, target, signingKeyPath, signingKeyId }: { projectRoot: string; artifact: string; config: any; target: any; signingKeyPath?: string; signingKeyId?: string }): Promise<Buffer> {
-  const lock = await lockBinding(projectRoot, target);
+export async function renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string }): Promise<Buffer> {
+  const selectedTargets = normalizeTargets({ target, targets });
+  const lock = await lockBinding(projectRoot, selectedTargets);
   const archive = await readFile(artifact);
-  const manifest = {
-    format: 'sealwrapper.release/v1',
+  const selectedIds = selectedTargets.map(targetId);
+  const configuredDefault = config.sealDice?.defaultTarget;
+  const matrixDefault = typeof configuredDefault === 'string' && selectedIds.includes(configuredDefault) ? configuredDefault : selectedIds[0];
+  const primary = selectedTargets.find((item) => targetId(item) === matrixDefault) ?? selectedTargets[0];
+  const targetRecords = selectedTargets.map((item) => ({
+    id: targetId(item),
+    core: { source: item.core.source ?? null, commit: item.core.commit, runtimeVersion: item.core.runtimeVersion, sourceDeclaredVersion: item.core.sourceDeclaredVersion ?? null, releaseArtifactSha256: item.core.releaseArtifactSha256 ?? null },
+    overlay: { id: item.testOverlay.id, digest: overlayDigest(item.testOverlay.patches), protocol: item.testOverlay.protocol, capabilitiesSha256: item.testOverlay.capabilitiesSha256, patches: item.testOverlay.patches ?? [], trustKeyId: item.trust?.activeKeyId ?? null, nonProductionEquivalent: false },
+  }));
+  const manifest: Record<string, any> = {
+    format: 'sealwrapper.release/v2',
     generatedAt: releaseTimestamp(),
     artifact: { name: basename(artifact), sha256: `sha256:${createHash('sha256').update(archive).digest('hex')}`, bytes: archive.length },
     package: { id: config.sealpack.packageId, name: config.package.name, version: config.package.version },
-    target: '1.6.0',
-    lock: { sha256: lock.digest },
-    core: { source: target.core.source ?? null, commit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion ?? null, releaseArtifactSha256: target.core.releaseArtifactSha256 ?? null },
-    overlay: { id: target.testOverlay.id, digest: target.testOverlay.digest, protocol: target.testOverlay.protocol, capabilitiesSha256: target.testOverlay.capabilitiesSha256, patches: target.testOverlay.patches ?? [], trustKeyId: target.trust?.activeKeyId ?? null, nonProductionEquivalent: false },
+    targets: targetRecords,
+    targetMatrix: {
+      registryVersion: lock.registryVersion,
+      buildTargets: selectedIds,
+      defaultTarget: matrixDefault,
+    },
+    lock: { sha256: lock.digest, registryVersion: lock.registryVersion, buildTargets: lock.buildTargets, defaultTarget: lock.defaultTarget },
   };
+  if (selectedTargets.length === 1) {
+    manifest.target = targetId(primary);
+    manifest.core = targetRecords[0].core;
+    manifest.overlay = targetRecords[0].overlay;
+  }
+  else {
+    manifest.primaryTarget = targetId(primary);
+  }
   const signature = await releaseSignature(manifest, signingKeyPath, signingKeyId);
   const signed = signature ? { ...manifest, signature } : manifest;
   return Buffer.from(`${stable(signed)}\n`, 'utf8');
@@ -140,12 +174,12 @@ export async function publishReleaseFiles({ releaseDirectory, files }: { release
   }
 }
 
-export async function writeReleaseProvenance({ projectRoot, artifact, config, target, signingKeyPath, signingKeyId }: { projectRoot: string; artifact: string; config: any; target: any; signingKeyPath?: string; signingKeyId?: string }) {
-  const data = await renderReleaseProvenance({ projectRoot, artifact, config, target, signingKeyPath, signingKeyId });
+export async function writeReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string }) {
+  const data = await renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId });
   const path = join(dirname(artifact), `${basename(artifact)}.release.json`);
   const temporary = `${path}.tmp-${process.pid}`;
   await writeFile(temporary, data, { mode: 0o644 });
-  // This compatibility helper is for callers that already own the destination
+  // This convenience helper is for callers that already own the destination
   // directory. The CLI uses publishReleaseFiles for its all-or-nothing path.
   await link(temporary, path);
   await unlink(temporary);

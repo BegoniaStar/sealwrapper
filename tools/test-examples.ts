@@ -3,6 +3,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
+import { configuredTargetIds, validateProjectConfig } from '../src/config.ts';
+
 type RunResult = { code: number };
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,13 +80,16 @@ async function main() {
 
   let completed = 0;
   for (const projectRoot of chosen) {
-    const config = JSON.parse(await readFile(join(projectRoot, 'seal.config.json'), 'utf8')) as { build?: unknown };
-    if (offline) await runRequired(projectRoot, ['core', 'verify', '--target', '1.6.0'], planOnly);
-    else await runRequired(projectRoot, ['core', 'sync', '--target', '1.6.0'], planOnly);
-    await runRequired(projectRoot, ['types', 'sync', '--target', '1.6.0'], planOnly);
-    await runRequired(projectRoot, ['types', 'verify', '--target', '1.6.0'], planOnly);
-    await runRequired(projectRoot, ['types', 'audit', '--target', '1.6.0'], planOnly);
-    if (config.build) await runRequired(projectRoot, ['typecheck', '--target', '1.6.0'], planOnly);
+    const config = validateProjectConfig(JSON.parse(await readFile(join(projectRoot, 'seal.config.json'), 'utf8')));
+    const targets = configuredTargetIds(config);
+    for (const target of targets) {
+      if (offline) await runRequired(projectRoot, ['core', 'verify', '--target', target], planOnly);
+      else await runRequired(projectRoot, ['core', 'sync', '--target', target], planOnly);
+      await runRequired(projectRoot, ['types', 'sync', '--target', target], planOnly);
+      await runRequired(projectRoot, ['types', 'verify', '--target', target], planOnly);
+      await runRequired(projectRoot, ['types', 'audit', '--target', target], planOnly);
+      if (config.build) await runRequired(projectRoot, ['typecheck', '--target', target], planOnly);
+    }
 
     const tests = await unitTests(projectRoot);
     if (tests.length > 0) {
@@ -100,11 +105,11 @@ async function main() {
       }
     }
 
-    await runRequired(projectRoot, ['resource', 'check', '--target', '1.6.0'], planOnly);
+    for (const target of targets) await runRequired(projectRoot, ['resource', 'check', '--target', target], planOnly);
     // Every release-marked example scenario also exercises the offline report
     // path. JSON remains authoritative; SVG/HTML/PNG are diagnostic outputs
     // under .seal/reports and never affect the package or assertions.
-    const scenarioArgs = ['scenario', 'test', '--target', '1.6.0', '--release', '--offline', '--render', '--png'];
+    const scenarioArgs = ['scenario', 'test', '--release', '--offline', '--render', '--png'];
     await runRequired(projectRoot, scenarioArgs, planOnly);
     completed += 1;
     process.stdout.write(`[examples] passed: ${relative(toolRoot, projectRoot)}\n`);

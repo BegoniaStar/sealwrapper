@@ -2,6 +2,7 @@ import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, posix, relative, resolve } from 'node:path';
 
 import { buildBundle } from './build.ts';
+import { configuredTargetIds } from './config.ts';
 import { invariant, SealwrapperError } from './errors.ts';
 
 export type StagedFile = { path: string; data: Buffer };
@@ -101,8 +102,8 @@ function manifestFor(config: any, staged: Map<string, Buffer>): string {
   return lines.join('\n');
 }
 
-export async function stageSealpack({ root, config, target }: { root: string; config: any; target: string }): Promise<StagedSealpack> {
-  invariant(target === '1.6.0', 'Only exact target 1.6.0 is supported');
+export async function stageSealpack({ root, config, target }: { root: string; config: any; target?: string }): Promise<StagedSealpack> {
+  if (target !== undefined) invariant(configuredTargetIds(config).includes(target), `Target ${target} is not selected by sealDice.buildTarget`);
   if (await exists(join(root, 'package.json')) && !(await exists(join(root, 'package-lock.json')))) throw new SealwrapperError('package.json requires a committed package-lock.json');
   const files = new Map<string, Buffer>();
   const readme = resolve(root, config.sealpack.readme);

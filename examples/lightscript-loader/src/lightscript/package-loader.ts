@@ -275,7 +275,7 @@ const runtimeModuleLoader: RuntimeModuleLoader = {
     const prefix = './lightscripts/';
     if (!path.startsWith(prefix))
       throw new Error(`Unexpected LightScript asset path: ${path}`);
-    // A schema-v1 sealpack stages non-executable data below assets/. The core
+    // A schema-v2 sealpack stages non-executable data below assets/. The core
     // executes this bundle from scripts/, so this remains a fixed package-local
     // path; it never turns a document-supplied string into an arbitrary path.
     const assetPath = '../assets/lightscripts/' + path.slice(prefix.length);

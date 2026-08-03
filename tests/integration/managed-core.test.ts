@@ -22,9 +22,9 @@ const execFileAsync = promisify(execFile);
 
 function config(): any {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     package: { name: 'Bridge Fixture', version: '1.0.0', authors: ['Tester'], license: 'MIT', description: '', homepage: '' },
-    sealDice: { profiles: [{ id: '1.6.0', kind: 'exact' }], defaultTarget: '1.6.0' },
+    sealDice: { buildTarget: ['1.6.0'], defaultTarget: '1.6.0' },
     release: { directory: 'release', checksum: 'sha256', artifactPolicy: { forbiddenPaths: [], forbiddenExtensions: [] } },
     sealpack: { packageId: 'tester/bridge-fixture', minSealDice: '1.6.0', contents: { decks: { source: 'content/decks' }, reply: { source: 'content/reply' }, helpdoc: { source: 'content/helpdoc' }, templates: { source: 'content/templates' } }, dependencies: {}, permissions: { network: false, networkHosts: [], acknowledgeUnrestrictedNetwork: false, fileRead: [], fileWrite: [], dangerous: false, httpServer: false, ipc: [] }, readme: 'README.md', assets: [], store: { category: 'rules', icon: '', banner: '', screenshots: [] } },
   };
@@ -69,13 +69,13 @@ test('managed exact core performs strict validation and real install-enable-relo
   assert.deepEqual(typeAudit.differences, []);
   const replyAudit = await auditReplyGrammar(verified.worktree);
   assert.deepEqual(replyAudit.differences, []);
-  const state = join(root, '.seal', 'core', 'state-1.6.0.json');
+  const state = join(root, '.seal', 'core', '1.6.0', 'state.json');
   const stateBackup = `${state}.regression-backup`;
   await rename(state, stateBackup);
   await symlink('/tmp', state);
   try { await assert.rejects(() => coreVerify(root), /symbolic-link.*managed core path/i); }
   finally { await unlink(state); await rename(stateBackup, state); }
-  const mirror = join(root, '.seal', 'core', 'mirror.git');
+  const mirror = join(root, '.seal', 'core', '1.6.0', 'mirror.git');
   await execFileAsync('git', ['-C', mirror, 'remote', 'set-url', 'origin', 'https://example.invalid/tampered-core']);
   await assert.rejects(() => coreVerify(root), /mirror remote mismatch/i);
   await execFileAsync('git', ['-C', mirror, 'remote', 'set-url', 'origin', pinnedTarget.core.source]);

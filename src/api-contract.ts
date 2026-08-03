@@ -8,12 +8,12 @@ import type * as TypeScript from 'typescript';
 
 import { canonicalJson } from './capabilities.ts';
 import { SealwrapperError } from './errors.ts';
-import { pinnedTarget } from './pinned-target.ts';
+import { defaultTargetId, getTarget, hasTarget, type TargetDescriptor } from './pinned-target.ts';
 
 const require = createRequire(import.meta.url);
 const ts: typeof import('typescript') = require('typescript');
 
-export const apiTarget = '1.6.0';
+export const apiTarget = defaultTargetId;
 export const apiScannerVersion = 2;
 export const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -156,7 +156,7 @@ function sortedSet(values: readonly string[]): Set<string> {
  * zero-value conversion and are therefore valid when TS requires fewer args.
  */
 export function validateDeclarationCoverage(inventory: ApiInventory, semantic: SemanticOverride, template: string) {
-  if (inventory.target !== apiTarget || semantic.target !== apiTarget) throw new SealwrapperError(`Only exact API target ${apiTarget} is supported`, 3);
+  if (inventory.target !== semantic.target) throw new SealwrapperError(`API inventory target ${inventory.target} does not match semantic target ${semantic.target}`, 3);
   const surface = declarationSurface(template);
   const inventoryOnly = sortedSet(semantic.inventoryOnlyPaths);
   const declarationOnly = sortedSet(semantic.declarationOnlyPaths);
@@ -254,15 +254,16 @@ export function compareApiInventories(expected: ApiInventory, actual: ApiInvento
   return changes;
 }
 
-export function apiContractPaths(root = toolRoot): ApiContractPaths {
-  const directory = join(root, 'api', 'sealdice', apiTarget);
+export function apiContractPaths(root = toolRoot, targetId = apiTarget): ApiContractPaths {
+  if (!hasTarget(targetId)) throw new SealwrapperError(`Unknown SealDice target ${targetId}`, 2);
+  const directory = join(root, 'api', 'sealdice', targetId);
   return {
     directory,
     inventory: join(directory, 'inventory.json'),
     override: join(directory, 'semantic-override.json'),
     report: join(directory, 'report.md'),
     template: join(directory, 'seal.d.ts.template'),
-    declaration: join(root, 'types', 'sealdice', apiTarget, 'seal.d.ts'),
+    declaration: join(root, 'types', 'sealdice', targetId, 'seal.d.ts'),
   };
 }
 
@@ -274,10 +275,10 @@ async function readJson(path: string, label: string): Promise<unknown> {
   }
 }
 
-function parseInventory(raw: unknown): ApiInventory {
+function parseInventory(raw: unknown, expectedTarget = apiTarget): ApiInventory {
   const value = asRecord(raw, 'API inventory');
   const core = asRecord(value.core, 'API inventory.core');
-  if (value.schemaVersion !== 1 || value.scannerVersion !== apiScannerVersion || value.target !== apiTarget) throw new SealwrapperError(`API inventory must use schemaVersion 1, scanner ${String(apiScannerVersion)}, and target ${apiTarget}`, 3);
+  if (value.schemaVersion !== 1 || value.scannerVersion !== apiScannerVersion || value.target !== expectedTarget) throw new SealwrapperError(`API inventory must use schemaVersion 1, scanner ${String(apiScannerVersion)}, and target ${expectedTarget}`, 3);
   if (!Array.isArray(value.entries)) throw new SealwrapperError('API inventory.entries must be an array', 3);
   const entries = value.entries.map((item, index) => {
     const entry = asRecord(item, `API inventory.entries[${String(index)}]`);
@@ -295,7 +296,7 @@ function parseInventory(raw: unknown): ApiInventory {
   return {
     schemaVersion: 1,
     scannerVersion: apiScannerVersion,
-    target: apiTarget,
+    target: expectedTarget,
     core: {
       commit: asString(core.commit, 'API inventory core.commit'),
       runtimeVersion: asString(core.runtimeVersion, 'API inventory core.runtimeVersion'),
@@ -307,21 +308,21 @@ function parseInventory(raw: unknown): ApiInventory {
   };
 }
 
-function parseSemanticOverride(raw: unknown): SemanticOverride {
+function parseSemanticOverride(raw: unknown, expectedTarget = apiTarget): SemanticOverride {
   const value = asRecord(raw, 'semantic override');
-  if (value.schemaVersion !== 1 || value.target !== apiTarget) throw new SealwrapperError(`Semantic override must use schemaVersion 1 and target ${apiTarget}`, 3);
+  if (value.schemaVersion !== 1 || value.target !== expectedTarget) throw new SealwrapperError(`Semantic override must use schemaVersion 1 and target ${expectedTarget}`, 3);
   return {
     schemaVersion: 1,
-    target: apiTarget,
+    target: expectedTarget,
     template: asString(value.template, 'semantic override.template'),
     declarationOnlyPaths: asStringArray(value.declarationOnlyPaths, 'semantic override.declarationOnlyPaths'),
     inventoryOnlyPaths: asStringArray(value.inventoryOnlyPaths, 'semantic override.inventoryOnlyPaths'),
   };
 }
 
-function verifyPinnedInventory(inventory: ApiInventory) {
-  if (inventory.core.commit !== pinnedTarget.core.commit || inventory.core.runtimeVersion !== pinnedTarget.core.runtimeVersion || inventory.core.sourceDeclaredVersion !== pinnedTarget.core.sourceDeclaredVersion) {
-    throw new SealwrapperError('API inventory provenance does not match the lock-pinned 1.6.0 target', 3);
+function verifyPinnedInventory(inventory: ApiInventory, target: TargetDescriptor) {
+  if (inventory.target !== target.id || inventory.core.commit !== target.core.commit || inventory.core.runtimeVersion !== target.core.runtimeVersion || inventory.core.sourceDeclaredVersion !== target.core.sourceDeclaredVersion) {
+    throw new SealwrapperError(`API inventory provenance does not match the lock-pinned ${target.id} target`, 3);
   }
 }
 
@@ -349,12 +350,13 @@ export type LoadedApiContract = {
   template: string;
 };
 
-/** Load and verify all checked-in exact-target API contract artifacts. */
-export async function loadApiContract(root = toolRoot): Promise<LoadedApiContract> {
-  const paths = apiContractPaths(root);
-  const inventory = parseInventory(await readJson(paths.inventory, 'API inventory'));
-  verifyPinnedInventory(inventory);
-  const semantic = parseSemanticOverride(await readJson(paths.override, 'semantic override'));
+/** Load and verify all checked-in API contract artifacts for one target. */
+export async function loadApiContract(root = toolRoot, targetId = apiTarget): Promise<LoadedApiContract> {
+  const target = getTarget(targetId);
+  const paths = apiContractPaths(root, targetId);
+  const inventory = parseInventory(await readJson(paths.inventory, 'API inventory'), targetId);
+  verifyPinnedInventory(inventory, target);
+  const semantic = parseSemanticOverride(await readJson(paths.override, 'semantic override'), targetId);
   if (semantic.template !== relative(root, paths.template).replaceAll('\\', '/')) throw new SealwrapperError('Semantic override template path is invalid', 3);
   const template = await readFile(paths.template, 'utf8').catch((error) => { throw new SealwrapperError(`Unable to read semantic declaration template: ${(error as Error).message}`, 3); });
   const declaration = renderApiDeclaration(inventory, semantic, template);
@@ -383,8 +385,7 @@ async function requirePinnedGo(target: any) {
 }
 
 /** Scan only a lock-managed core worktree; callers never supply arbitrary core paths. */
-export async function scanManagedCoreApi(worktree: string, target: any): Promise<ApiInventory> {
-  if (target.core.commit !== pinnedTarget.core.commit || target.core.runtimeVersion !== pinnedTarget.core.runtimeVersion) throw new SealwrapperError('API scanner only accepts the lock-pinned exact target', 3);
+export async function scanManagedCoreApi(worktree: string, target: TargetDescriptor): Promise<ApiInventory> {
   await requirePinnedGo(target);
   const scanner = join(toolRoot, 'tools', 'seal-api-scan');
   const result = await run('go', ['run', '.', '--core', worktree], scanner);
@@ -399,19 +400,19 @@ export async function scanManagedCoreApi(worktree: string, target: any): Promise
   const inventory: ApiInventory = {
     schemaVersion: 1,
     scannerVersion: apiScannerVersion,
-    target: apiTarget,
+    target: target.id,
     core: { commit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, sourceFingerprint: raw.sourceFingerprint },
     entries: [...raw.entries].sort((left, right) => comparePath(left.path, right.path)),
     types: raw.types,
   };
-  return parseInventory(inventory);
+  return parseInventory(inventory, target.id);
 }
 
 /** Rewrite generated inventory, declaration and report after an explicit audit. */
-export async function updateApiContract(worktree: string, target: any, root = toolRoot): Promise<LoadedApiContract> {
+export async function updateApiContract(worktree: string, target: TargetDescriptor, root = toolRoot): Promise<LoadedApiContract> {
   if (root !== toolRoot) throw new SealwrapperError('API contract updates can only write sealwrapper-owned source assets', 2);
-  const paths = apiContractPaths(root);
-  const semantic = parseSemanticOverride(await readJson(paths.override, 'semantic override'));
+  const paths = apiContractPaths(root, target.id);
+  const semantic = parseSemanticOverride(await readJson(paths.override, 'semantic override'), target.id);
   const template = await readFile(paths.template, 'utf8');
   const inventory = await scanManagedCoreApi(worktree, target);
   validateDeclarationCoverage(inventory, semantic, template);
@@ -426,8 +427,8 @@ export async function updateApiContract(worktree: string, target: any, root = to
 }
 
 /** Compare the checked-in inventory with a fresh scan of an already-verified worktree. */
-export async function auditApiContract(worktree: string, target: any, root = toolRoot): Promise<{ inventory: ApiInventory; differences: string[] }> {
-  const expected = await loadApiContract(root);
+export async function auditApiContract(worktree: string, target: TargetDescriptor, root = toolRoot): Promise<{ inventory: ApiInventory; differences: string[] }> {
+  const expected = await loadApiContract(root, target.id);
   const actual = await scanManagedCoreApi(worktree, target);
   return { inventory: actual, differences: compareApiInventories(expected.inventory, actual) };
 }

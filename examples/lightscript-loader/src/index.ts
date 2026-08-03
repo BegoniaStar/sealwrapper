@@ -1,4 +1,4 @@
-// schema-v1 generates the sealpack manifest from seal.config.json, so the
+// schema-v2 generates the sealpack manifest from seal.config.json, so the
 // runtime metadata stays here rather than reviving the legacy extension.json.
 const extensionMetadata = {
   id: 'sealdice-lightscript-loader',

@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": { "name": "示例：摸鱼大赛 TRPG 规则", "version": "1.0.0", "authors": ["木落"], "license": "MIT", "description": "注册摸鱼大赛角色卡模板与 .fish 指令。", "homepage": "https://github.com/sealdice/javascript" },
   "build": { "entry": "src/index.ts", "ecmaTarget": "es6", "bundleFileName": "013-custom-trpg-rule.js" },
-  "sealDice": { "profiles": [{ "id": "1.6.0", "kind": "exact" }], "defaultTarget": "1.6.0" },
+  "sealDice": { "buildTarget": ["1.6.0"], "defaultTarget": "1.6.0" },
   "release": { "directory": "release", "checksum": "sha256", "artifactPolicy": { "forbiddenPaths": [], "forbiddenExtensions": [] } },
   "sealpack": {
     "packageId": "sealdice-js-examples/013-custom-trpg-rule", "minSealDice": "1.6.0", "contents": { "scripts": { "bundle": true, "path": "scripts/013-custom-trpg-rule.js" } }, "dependencies": {},

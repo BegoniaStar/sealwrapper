@@ -12,7 +12,12 @@ await build({
   absWorkingDir: root,
   bundle: true,
   entryPoints: ['src/cli.ts'],
-  external: ['esbuild', 'typescript'],
+  // Both packages are runtime dependencies.  RushStack currently exposes a
+  // Node condition before its ESM condition, so bundling it would embed its
+  // CommonJS argparse wrapper and fail on dynamic builtin requires in an ESM
+  // bundle.  Keeping the parser and spinner external also makes npm's normal
+  // dependency installation semantics explicit.
+  external: ['@rushstack/ts-command-line', 'ora', 'esbuild', 'typescript'],
   format: 'esm',
   outfile: output,
   platform: 'node',

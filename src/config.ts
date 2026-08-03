@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, posix } from 'node:path';
 
 import { invariant, SealwrapperError } from './errors.ts';
+import { compareTargetIds, minimumTargetId, targetRegistry, type TargetDescriptor } from './pinned-target.ts';
 
 const packageIdPattern = /^[\p{L}\p{N}_-]{1,64}\/[\p{L}\p{N}_-]{1,64}$/u;
 // SemVer 2.0.0's grammar is almost expressible as one regexp.  The one
@@ -41,11 +42,7 @@ function boolean(value: unknown, label: string): boolean {
   return value;
 }
 
-/**
- * Schema v1 is deliberately closed.  Silently ignoring a field is especially
- * dangerous here: it can make an author believe that a legacy release or
- * compatibility setting is being honoured when sealwrapper never reads it.
- */
+/** Keep the v2 manifest closed so every accepted field has one owner. */
 function onlyKeys(value: Record<string, any>, label: string, allowed: readonly string[]) {
   for (const key of Object.keys(value)) invariant(allowed.includes(key), `${label}.${key} is unsupported`);
 }
@@ -74,15 +71,21 @@ function verifyMetadata(config: Record<string, any>) {
   string(metadata.homepage, 'package.homepage', true);
 }
 
-function verifyTarget(config: Record<string, any>) {
+export type TargetSelection = { buildTarget: string[]; defaultTarget: string };
+
+function verifyBuildTargets(config: Record<string, any>, registry: Readonly<Record<string, TargetDescriptor>>): TargetSelection {
   const sealDice = record(config.sealDice, 'sealDice');
-  onlyKeys(sealDice, 'sealDice', ['profiles', 'defaultTarget']);
-  const profiles = array(sealDice.profiles, 'sealDice.profiles');
-  invariant(profiles.length === 1, 'sealDice.profiles must contain only exact target 1.6.0');
-  const target = record(profiles[0], 'sealDice.profiles[0]');
-  onlyKeys(target, 'sealDice.profiles[0]', ['id', 'kind']);
-  invariant(target.id === '1.6.0' && target.kind === 'exact', 'sealDice.profiles must contain only exact target 1.6.0');
-  invariant(sealDice.defaultTarget === '1.6.0', 'sealDice.defaultTarget must be exact target 1.6.0');
+  onlyKeys(sealDice, 'sealDice', ['buildTarget', 'defaultTarget']);
+  const buildTarget = strings(sealDice.buildTarget, 'sealDice.buildTarget');
+  invariant(buildTarget.length > 0, 'sealDice.buildTarget must contain at least one target');
+  invariant(new Set(buildTarget).size === buildTarget.length, 'sealDice.buildTarget must not contain duplicate targets');
+  for (const [index, id] of buildTarget.entries()) {
+    invariant(registry[id] !== undefined, `sealDice.buildTarget[${index}] is not included in this sealwrapper target registry: ${id}`);
+    invariant(registry[id].id === id, `sealDice.buildTarget[${index}] registry descriptor does not identify target ${id}`);
+  }
+  const defaultTarget = string(sealDice.defaultTarget, 'sealDice.defaultTarget');
+  invariant(buildTarget.includes(defaultTarget), 'sealDice.defaultTarget must be included in sealDice.buildTarget');
+  return { buildTarget, defaultTarget };
 }
 
 function verifyBuild(config: Record<string, any>, contents: Record<string, any>) {
@@ -105,13 +108,13 @@ function verifyBuild(config: Record<string, any>, contents: Record<string, any>)
   string(build.ecmaTarget, 'build.ecmaTarget');
 }
 
-function verifySealpack(config: Record<string, any>) {
+function verifySealpack(config: Record<string, any>, selection: TargetSelection) {
   const sealpack = record(config.sealpack, 'sealpack');
   onlyKeys(sealpack, 'sealpack', ['packageId', 'minSealDice', 'contents', 'dependencies', 'permissions', 'readme', 'assets', 'store']);
   const packageId = string(sealpack.packageId, 'sealpack.packageId');
   invariant(packageIdPattern.test(packageId), 'sealpack.packageId must use author/package form');
   const min = string(sealpack.minSealDice, 'sealpack.minSealDice');
-  invariant(min === '1.6.0', 'sealpack.minSealDice must be exact target 1.6.0');
+  invariant(min === minimumTargetId(selection.buildTarget), `sealpack.minSealDice must equal the lowest selected target (${minimumTargetId(selection.buildTarget)})`);
   const contents = record(sealpack.contents, 'sealpack.contents');
   for (const key of Object.keys(contents)) invariant(['scripts', 'decks', 'reply', 'helpdoc', 'templates'].includes(key), `sealpack.contents.${key} is unsupported`);
   invariant(Object.keys(contents).length > 0, 'sealpack.contents must declare at least one supported content type');
@@ -167,16 +170,31 @@ function verifyRelease(config: Record<string, any>) {
   for (const name of ['forbiddenPaths', 'forbiddenExtensions']) strings(policy[name], `release.artifactPolicy.${name}`);
 }
 
-export function validateProjectConfig(raw: unknown): any {
+export function validateProjectConfig(raw: unknown, registry: Readonly<Record<string, TargetDescriptor>> = targetRegistry): any {
   const config = record(raw, 'seal.config.json');
   onlyKeys(config, 'seal.config.json', ['$schema', 'schemaVersion', 'package', 'build', 'sealDice', 'release', 'sealpack']);
   if (config.$schema !== undefined) string(config.$schema, 'seal.config.json.$schema');
-  invariant(config.schemaVersion === 1, 'Only schemaVersion: 1 is supported');
+  invariant(config.schemaVersion === 2, 'Only schemaVersion: 2 is supported');
   verifyMetadata(config);
-  verifyTarget(config);
+  const selection = verifyBuildTargets(config, registry);
   verifyRelease(config);
-  verifySealpack(config);
+  verifySealpack(config, selection);
   return config;
+}
+
+/** Return the target IDs selected by the project build matrix. */
+export function configuredTargetIds(config: Record<string, any>): string[] {
+  return sortTargetIds(config.sealDice.buildTarget);
+}
+
+/** Return the target used when a command needs one default target. */
+export function configuredDefaultTarget(config: Record<string, any>): string {
+  return config.sealDice.defaultTarget;
+}
+
+/** Keep target selections deterministic when rendering matrices and reports. */
+export function sortTargetIds(ids: readonly string[]): string[] {
+  return [...ids].sort(compareTargetIds);
 }
 
 export async function loadProjectConfig(root: string): Promise<any> {

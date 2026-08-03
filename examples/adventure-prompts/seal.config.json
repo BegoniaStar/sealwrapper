@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": {
     "name": "城市冒险灵感",
     "version": "1.0.0",
@@ -14,7 +14,7 @@
     "bundleFileName": "adventure-prompts.js"
   },
   "sealDice": {
-    "profiles": [{ "id": "1.6.0", "kind": "exact" }],
+    "buildTarget": ["1.6.0"],
     "defaultTarget": "1.6.0"
   },
   "release": {

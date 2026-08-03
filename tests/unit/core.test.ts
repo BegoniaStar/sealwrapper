@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { describeLockDiff, overlayDigest, validateSealLock } from '../../src/lock.ts';
+import { describeLockDiff, overlayDigest, renderSealLock, validateSealLock } from '../../src/lock.ts';
 import { pinnedTarget } from '../../src/pinned-target.ts';
 import { canonicalOverlayTrustDescriptor, verifyTargetTrust } from '../../src/trust.ts';
 
@@ -12,6 +12,10 @@ function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value !== null && typeof value === 'object') return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`;
   return JSON.stringify(value);
+}
+
+function lockFor(target: any) {
+  return JSON.parse(renderSealLock(target));
 }
 
 test('pinned 1.6.0 provenance keeps distribution runtime distinct from source declaration', () => {
@@ -29,15 +33,15 @@ test('lock update diff exposes every release-relevant contract change', () => {
   old.testOverlay.capabilities.limits.maxCompressionRatio = 50;
   old.testOverlay.capabilitiesSha256 = 'sha256:old';
   old.testOverlay.patches[0].sha256 = 'f'.repeat(64);
-  const lines = describeLockDiff({ lockVersion: 1, targets: { '1.6.0': old } }, { lockVersion: 1, targets: { '1.6.0': pinnedTarget } });
+  const lines = describeLockDiff(lockFor(old), lockFor(pinnedTarget));
   assert.ok(lines.some((line) => line.startsWith('core.commit:')));
   assert.ok(lines.some((line) => line.startsWith('overlay.patch[1]:')));
   assert.ok(lines.some((line) => line.startsWith('capability.limits.maxCompressionRatio:')));
 });
 
-test('lock validation accepts only the exact 1.6.0 target and authenticated test-only overlay', async () => {
+test('lock validation accepts the registered target and authenticated test-only overlay', async () => {
   const patch = await readFile(join(process.cwd(), pinnedTarget.testOverlay.patches[0].path));
-  const lock = { lockVersion: 1, targets: { '1.6.0': pinnedTarget } };
+  const lock = lockFor(pinnedTarget);
   const validated = validateSealLock(lock, process.cwd());
   assert.equal(validated.targets['1.6.0'].testOverlay.digest, overlayDigest(validated.targets['1.6.0'].testOverlay.patches));
   assert.match(patch.toString('utf8'), /^diff --git a\/dice\/zz_sealwrapper_bridge_test\.go b\/dice\/zz_sealwrapper_bridge_test\.go/m);
@@ -47,10 +51,10 @@ test('lock validation accepts only the exact 1.6.0 target and authenticated test
 test('lock validation rejects a changed patch hash or non-test overlay path', () => {
   const tampered = structuredClone(pinnedTarget);
   tampered.testOverlay.patches[0].sha256 = '0'.repeat(64);
-  assert.throws(() => validateSealLock({ lockVersion: 1, targets: { '1.6.0': tampered } }, process.cwd()), /sha256/i);
+  assert.throws(() => validateSealLock(lockFor(tampered), process.cwd()), /sha256/i);
   const nonTest = structuredClone(pinnedTarget);
   nonTest.testOverlay.patches[0].path = 'patches/sealdice-core/1.6.0/0001-loader-change.patch';
-  assert.throws(() => validateSealLock({ lockVersion: 1, targets: { '1.6.0': nonTest } }, process.cwd()), /test-only/i);
+  assert.throws(() => validateSealLock(lockFor(nonTest), process.cwd()), /test-only/i);
 });
 
 test('P2 lock trust verifies an Ed25519-signed overlay descriptor and locked mirror policy', () => {

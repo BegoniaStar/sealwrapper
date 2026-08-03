@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { SealwrapperError } from './errors.ts';
 import { invokeBridge } from './bridge.ts';
-import { loadSealLock } from './lock.ts';
+import { loadSealLock, lockedTarget, lockDefaultTarget, type LockedTarget } from './lock.ts';
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -33,11 +33,11 @@ async function present(path: string): Promise<boolean> {
   try { await access(path); return true; } catch { return false; }
 }
 
-function corePaths(projectRoot: string) {
+function corePaths(projectRoot: string, targetId: string) {
   const root = resolve(projectRoot);
   const seal = join(root, '.seal');
-  const base = join(seal, 'core');
-  return { projectRoot: root, seal, base, mirror: join(base, 'mirror.git'), worktree: join(base, 'worktree-1.6.0'), state: join(base, 'state-1.6.0.json') };
+  const base = join(seal, 'core', targetId);
+  return { projectRoot: root, seal, base, mirror: join(base, 'mirror.git'), worktree: join(base, 'worktree'), state: join(base, 'state.json'), targetId };
 }
 
 function isWithin(root: string, candidate: string): boolean {
@@ -109,6 +109,10 @@ async function ensureMirror(paths: ReturnType<typeof corePaths>, core: any, offl
   await assertManagedPath(paths.base, paths.projectRoot);
   if (await present(paths.seal)) await assertDirectory(paths.seal, 'Managed .seal directory');
   else await mkdir(paths.seal, { recursive: false });
+  const coreRoot = dirname(paths.base);
+  await assertManagedPath(coreRoot, paths.projectRoot);
+  if (await present(coreRoot)) await assertDirectory(coreRoot, 'Managed core root directory');
+  else await mkdir(coreRoot, { recursive: false });
   if (await present(paths.base)) await assertDirectory(paths.base, 'Managed core directory');
   else await mkdir(paths.base, { recursive: false });
   await assertManagedPath(paths.base, paths.projectRoot);
@@ -179,11 +183,22 @@ async function prepareTestOnlyEmbedFixtures(worktree: string) {
   }
 }
 
-export async function coreSync(projectRoot: string, { offline = false } = {}) {
+async function overlayTestFiles(target: LockedTarget): Promise<string[]> {
+  const files = new Set<string>();
+  for (const patch of target.testOverlay.patches) {
+    const data = await readFile(join(toolRoot, patch.path), 'utf8');
+    for (const match of data.matchAll(/^diff --git a\/(dice\/[^\n]+_test\.go) b\/dice\/[^\n]+_test\.go$/gmu)) files.add(match[1]);
+  }
+  if (files.size === 0) throw new SealwrapperError(`Target ${target.id} overlay does not add a test-only bridge source`, 3);
+  return [...files].sort((left, right) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
+}
+
+export async function coreSync(projectRoot: string, { targetId, offline = false }: { targetId?: string; offline?: boolean } = {}) {
   const lock = await loadSealLock(projectRoot, toolRoot);
-  const target = lock.targets['1.6.0'];
+  const selectedTargetId = targetId ?? lockDefaultTarget(lock);
+  const target = lockedTarget(lock, selectedTargetId);
   await assertExactGo(target.testOverlay.goVersion);
-  const paths = corePaths(projectRoot);
+  const paths = corePaths(projectRoot, selectedTargetId);
   await assertManagedPath(paths.seal, paths.projectRoot);
   await assertManagedPath(paths.base, paths.projectRoot);
   const mirror = await ensureMirror(paths, target.core, offline);
@@ -200,8 +215,8 @@ export async function coreSync(projectRoot: string, { offline = false } = {}) {
   const bridge = await invokeBridge({ worktree: paths.worktree, target, operation: 'capabilities' });
   if (!bridge.ok) throw new SealwrapperError('Bridge capability self-check returned diagnostics', 3);
   await assertManagedPath(paths.state, paths.projectRoot);
-  await writeFile(paths.state, `${JSON.stringify({ target: '1.6.0', mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, overlayDigest: target.testOverlay.digest, protocol: target.testOverlay.protocol, capabilitiesSha256: target.testOverlay.capabilitiesSha256 }, null, 2)}\n`, 'utf8');
-  return coreVerify(projectRoot);
+  await writeFile(paths.state, `${JSON.stringify({ target: selectedTargetId, mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, overlayDigest: target.testOverlay.digest, protocol: target.testOverlay.protocol, capabilitiesSha256: target.testOverlay.capabilitiesSha256 }, null, 2)}\n`, 'utf8');
+  return coreVerify(projectRoot, { targetId: selectedTargetId });
 }
 
 type TrackedTreeEntry = { mode: string; type: string; object: string; path: string };
@@ -373,10 +388,11 @@ async function verifyWorktreeSymlinks(worktree: string): Promise<void> {
   }
 }
 
-export async function coreVerify(projectRoot: string) {
+export async function coreVerify(projectRoot: string, { targetId }: { targetId?: string } = {}) {
   const lock = await loadSealLock(projectRoot, toolRoot);
-  const target = lock.targets['1.6.0'];
-  const paths = corePaths(projectRoot);
+  const selectedTargetId = targetId ?? lockDefaultTarget(lock);
+  const target = lockedTarget(lock, selectedTargetId);
+  const paths = corePaths(projectRoot, selectedTargetId);
   await assertManagedPath(paths.seal, paths.projectRoot);
   await assertManagedPath(paths.base, paths.projectRoot);
   await assertManagedPath(paths.mirror, paths.projectRoot);
@@ -397,10 +413,11 @@ export async function coreVerify(projectRoot: string) {
   await checked('git', ['-C', paths.mirror, 'cat-file', '-e', `${target.core.commit}^{commit}`]);
   await verifyTrackedTree(paths.worktree);
   for (const patch of target.testOverlay.patches) await checked('git', ['-C', paths.worktree, 'apply', '--reverse', '--check', join(toolRoot, patch.path)]);
+  const bridgeFiles = await overlayTestFiles(target);
   const status = (await checked('git', ['-C', paths.worktree, 'status', '--porcelain'])).split('\n').filter(Boolean).sort();
   // static/frontend is ignored by upstream because release builds generate it;
   // its inert fixture is checked by the explicit file read below instead.
-  const expectedStatus = ['?? dice/zz_sealwrapper_bridge_test.go', '?? static/scripts/sealwrapper-bridge-placeholder.txt'];
+  const expectedStatus = [...bridgeFiles.map((path) => `?? ${path}`), '?? static/scripts/sealwrapper-bridge-placeholder.txt'].sort();
   if (JSON.stringify(status) !== JSON.stringify(expectedStatus)) throw new SealwrapperError('Managed core worktree has changes outside the locked test-only overlay', 3);
   const ignoredResult = await command('git', ['-C', paths.worktree, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z']);
   if (ignoredResult.code !== 0) throw new SealwrapperError(`Unable to inspect ignored managed core files${ignoredResult.stderr.trim() ? `:\n${ignoredResult.stderr.trim()}` : ''}`, 3);
@@ -409,11 +426,13 @@ export async function coreVerify(projectRoot: string) {
   // files are reported as ignored or ordinary untracked paths.  Accept only
   // this exact allowlist in either category; every other ignored file could
   // affect the Go build despite being hidden from `git status`.
-  const allowedIgnored = new Set(['dice/zz_sealwrapper_bridge_test.go', 'static/frontend/sealwrapper-bridge-placeholder.txt', 'static/scripts/sealwrapper-bridge-placeholder.txt']);
+  const allowedIgnored = new Set([...bridgeFiles, 'static/frontend/sealwrapper-bridge-placeholder.txt', 'static/scripts/sealwrapper-bridge-placeholder.txt']);
   if (ignored.some((path) => !allowedIgnored.has(path))) throw new SealwrapperError('Managed core worktree contains unexpected ignored files', 3);
-  const bridgeOverlay = join(paths.worktree, 'dice', 'zz_sealwrapper_bridge_test.go');
-  await assertManagedPath(dirname(bridgeOverlay), paths.worktree);
-  await assertRegularFile(bridgeOverlay, 'Managed core test-only bridge overlay');
+  for (const bridgeFile of bridgeFiles) {
+    const bridgeOverlay = join(paths.worktree, bridgeFile);
+    await assertManagedPath(dirname(bridgeOverlay), paths.worktree);
+    await assertRegularFile(bridgeOverlay, 'Managed core test-only bridge overlay');
+  }
   for (const relative of ['static/frontend/sealwrapper-bridge-placeholder.txt', 'static/scripts/sealwrapper-bridge-placeholder.txt']) {
     const fixturePath = join(paths.worktree, relative);
     await assertManagedPath(fixturePath, paths.worktree);
@@ -426,6 +445,6 @@ export async function coreVerify(projectRoot: string) {
     throw new SealwrapperError(`Managed core state is not valid JSON: ${error?.message ?? error}`, 3);
   }
   if (!state || typeof state !== 'object' || Array.isArray(state)) throw new SealwrapperError('Managed core state must be a JSON object', 3);
-  if (state.baseCommit !== target.core.commit || state.runtimeVersion !== target.core.runtimeVersion || state.overlayDigest !== target.testOverlay.digest || state.capabilitiesSha256 !== target.testOverlay.capabilitiesSha256 || !target.core.mirrors.includes(state.mirror)) throw new SealwrapperError('Managed core state does not match seal.lock', 3);
-  return { target: '1.6.0', worktree: paths.worktree, remote, mirror: state.mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, overlay: { id: target.testOverlay.id, digest: target.testOverlay.digest, protocol: target.testOverlay.protocol, patches: target.testOverlay.patches, capabilitiesSha256: target.testOverlay.capabilitiesSha256 } };
+  if (state.target !== selectedTargetId || state.baseCommit !== target.core.commit || state.runtimeVersion !== target.core.runtimeVersion || state.overlayDigest !== target.testOverlay.digest || state.capabilitiesSha256 !== target.testOverlay.capabilitiesSha256 || !target.core.mirrors.includes(state.mirror)) throw new SealwrapperError('Managed core state does not match seal.lock', 3);
+  return { target: selectedTargetId, worktree: paths.worktree, remote, mirror: state.mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, overlay: { id: target.testOverlay.id, digest: target.testOverlay.digest, protocol: target.testOverlay.protocol, patches: target.testOverlay.patches, capabilitiesSha256: target.testOverlay.capabilitiesSha256 } };
 }

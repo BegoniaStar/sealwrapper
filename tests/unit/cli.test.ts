@@ -33,11 +33,13 @@ test('packed global CLI uses compiled JavaScript outside node_modules type strip
   await execFileAsync(launcher, ['typecheck'], { cwd: join(destination, 'project') });
 });
 
-test('init creates a schema-v1 resource project with lock and no legacy extension.json', async () => {
+test('init creates a schema-v2 resource project with a target-aware lock', async () => {
   const destination = join(tmpdir(), `sealwrapper-init-${Date.now()}`);
   await runCli(['init', destination, '--kind', 'resource', '--no-sync'], { cwd: process.cwd(), write: () => {} });
   const config = JSON.parse(await readFile(join(destination, 'seal.config.json'), 'utf8'));
-  assert.equal(config.schemaVersion, 1);
+  assert.equal(config.schemaVersion, 2);
+  assert.deepEqual(config.sealDice.buildTarget, ['1.6.0']);
+  assert.equal(config.sealDice.defaultTarget, '1.6.0');
   assert.equal(config.build, undefined);
   await access(join(destination, 'seal.lock'));
   assert.match(await readFile(join(destination, 'sealw'), 'utf8'), /npx --no-install sealwrapper/);
@@ -52,7 +54,7 @@ test('init creates a minimal JS unit test required by the JS release gate', asyn
   await access(join(destination, '.seal', 'types', 'sealdice-1.6.0.d.ts'));
 });
 
-test('CLI can sync and verify the exact target declaration contract without a core checkout', async () => {
+test('CLI can sync and verify a target declaration contract without a core checkout', async () => {
   const destination = join(tmpdir(), `sealwrapper-types-cli-${Date.now()}`);
   await runCli(['init', destination, '--kind', 'js', '--no-sync'], { cwd: process.cwd(), write: () => {} });
   const lines: string[] = [];
@@ -67,7 +69,7 @@ test('doctor verifies the local Git and lock-pinned Go toolchain before core syn
   await runCli(['init', destination, '--kind', 'resource', '--no-sync'], { cwd: process.cwd(), write: () => {} });
   const lines: string[] = [];
   await runCli(['doctor'], { cwd: destination, write: (line) => lines.push(line) });
-  assert.match(lines.join('\n'), /Node .*Git git version .*Go go version go1\.25\.0 .*target 1\.6\.0/);
+  assert.match(lines.join('\n'), /Node .*Git git version .*Go go version go1\.25\.0 .*targets 1\.6\.0/);
 });
 
 test('type contract updates require an explicit write acknowledgement before accessing core', async () => {
@@ -77,10 +79,30 @@ test('type contract updates require an explicit write acknowledgement before acc
   );
 });
 
-test('CLI exposes only sealpack packaging and exact target 1.6.0', async () => {
+test('CLI exposes only sealpack packaging and registered targets', async () => {
   await assert.rejects(() => runCli(['package', '--format', 'js'], { cwd: process.cwd(), write: () => {} }), /sealpack-only/i);
+  await assert.rejects(() => runCli(['package', '--format=js'], { cwd: process.cwd(), write: () => {} }), /sealpack-only/i);
   await assert.rejects(() => runCli(['resource', 'check', '--target', '1.5.1'], { cwd: process.cwd(), write: () => {} }), /1\.6\.0/);
   await assert.rejects(() => runCli(['core', 'sync', '--core', '/tmp/core'], { cwd: process.cwd(), write: () => {} }), /user-supplied core/i);
+  await assert.rejects(() => runCli(['core', 'sync', '--core=/tmp/core'], { cwd: process.cwd(), write: () => {} }), /user-supplied core/i);
+});
+
+test('RushStack command definitions render root and legacy two-token action help', async () => {
+  const lines: string[] = [];
+  await runCli(['--help'], { cwd: process.cwd(), write: (line) => lines.push(line) });
+  assert.match(lines[0], /^Usage: sealwrapper\|sealw /);
+  lines.length = 0;
+  await runCli(['scenario', 'test', '--help'], { cwd: process.cwd(), write: (line) => lines.push(line) });
+  assert.match(lines[0], /^Usage: sealwrapper\|sealw scenario test /);
+  assert.match(lines.join('\n'), /--update-snapshots/);
+});
+
+test('RushStack parser rejects unknown options, duplicate targets, and extra init positionals', async () => {
+  const silent = { cwd: process.cwd(), write: () => {} };
+  await assert.rejects(() => runCli(['test', '--typo'], silent), /Unrecognized arguments/);
+  await assert.rejects(() => runCli(['test', '--target', '1.6.0', '--target', '1.6.0'], silent), /only be specified once/);
+  await assert.rejects(() => runCli(['test', '--target=1.6.0', '--target=1.6.0'], silent), /only be specified once/);
+  await assert.rejects(() => runCli(['init', 'one', 'two', '--no-sync'], silent), /exactly one destination/);
 });
 
 test('P2 CLI rejects invalid report controls before it accesses a managed core', async () => {

@@ -1,11 +1,11 @@
 import { execFile, spawn } from 'node:child_process';
-import { access, readdir } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { SealwrapperError } from './errors.ts';
-import { pinnedTarget } from './pinned-target.ts';
+import { pinnedTarget, type TargetDescriptor } from './pinned-target.ts';
 
 const toolRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const scannerRoot = join(toolRoot, 'tools', 'seal-api-scan');
@@ -81,27 +81,28 @@ function runScanner(args: string[]): Promise<{ code: number; stdout: string; std
   });
 }
 
-async function assertPinnedGo() {
+async function assertPinnedGo(target: TargetDescriptor) {
   let output: string;
   try {
     output = (await execFileAsync('go', ['version'])).stdout;
   } catch (error) {
-    throw new SealwrapperError(`Go ${pinnedTarget.testOverlay.goVersion} is required for reply grammar audit: ${(error as Error).message}`, 2);
+    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for reply grammar audit: ${(error as Error).message}`, 2);
   }
-  if (!output.includes(`go${pinnedTarget.testOverlay.goVersion} `)) {
-    throw new SealwrapperError(`Go ${pinnedTarget.testOverlay.goVersion} is required for reply grammar audit; found ${output.trim() || 'unavailable'}`, 2);
+  if (!output.includes(`go${target.testOverlay.goVersion} `)) {
+    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for reply grammar audit; found ${output.trim() || 'unavailable'}`, 2);
   }
 }
 
-async function overlayPath(worktree: string): Promise<string> {
-  const directory = join(worktree, 'dice');
-  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[]);
-  const candidate = entries
-    .filter((entry) => entry.isFile() && /^zz_sealwrapper_bridge.*_test\.go$/u.test(entry.name))
-    .map((entry) => join(directory, entry.name))
-    .sort(compare)[0];
-  if (!candidate || !(await access(candidate).then(() => true).catch(() => false))) throw new SealwrapperError('Managed core test-only bridge source is missing; run core sync', 3);
-  return candidate;
+async function overlayPath(worktree: string, target: TargetDescriptor): Promise<string> {
+  const candidates = new Set<string>();
+  for (const patch of target.testOverlay.patches) {
+    const source = join(scannerRoot, '..', '..', patch.path);
+    const data = await readFile(source, 'utf8').catch(() => '');
+    for (const match of data.matchAll(/^diff --git a\/(dice\/[^\n]+_test\.go) b\/dice\/[^\n]+_test\.go$/gmu)) candidates.add(match[1]);
+  }
+  const existing = [...candidates].sort(compare).map((path) => join(worktree, path));
+  for (const candidate of existing) if (await access(candidate).then(() => true).catch(() => false)) return candidate;
+  throw new SealwrapperError(`Managed core test-only bridge source for target ${target.id} is missing; run core sync`, 3);
 }
 
 /**
@@ -110,9 +111,9 @@ async function overlayPath(worktree: string): Promise<string> {
  * lock digest. A new core discriminant must be reviewed and then land in a
  * new signed overlay revision.
  */
-export async function auditReplyGrammar(worktree: string): Promise<{ grammar: ReplyGrammarAudit; differences: string[] }> {
-  await assertPinnedGo();
-  const overlay = await overlayPath(worktree);
+export async function auditReplyGrammar(worktree: string, target: TargetDescriptor = pinnedTarget): Promise<{ grammar: ReplyGrammarAudit; differences: string[] }> {
+  await assertPinnedGo(target);
+  const overlay = await overlayPath(worktree, target);
   const result = await runScanner(['--core', worktree, '--reply-grammar', '--overlay', overlay]);
   if (result.code !== 0) throw new SealwrapperError(`Go reply grammar audit failed:\n${(result.stderr || result.stdout).trim()}`, 3);
   let raw: unknown;

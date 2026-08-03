@@ -16,12 +16,12 @@ async function fixture(config: object) {
 
 function resourceConfig() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     package: {
       name: 'Resource Fixture', version: '1.2.3', authors: ['Tester'],
       license: 'MIT', description: 'fixture', homepage: 'https://example.invalid/fixture',
     },
-    sealDice: { profiles: [{ id: '1.6.0', kind: 'exact' }], defaultTarget: '1.6.0' },
+    sealDice: { buildTarget: ['1.6.0'], defaultTarget: '1.6.0' },
     release: { directory: 'release', checksum: 'sha256', artifactPolicy: { forbiddenPaths: [], forbiddenExtensions: [] } },
     sealpack: {
       packageId: 'tester/resource-fixture', minSealDice: '1.6.0',
@@ -34,22 +34,21 @@ function resourceConfig() {
   };
 }
 
-test('schema v1 accepts a deck/reply-only package with no build', async () => {
+test('schema v2 accepts a deck/reply-only package with no build', async () => {
   const root = await fixture(resourceConfig());
   const config = await loadProjectConfig(root);
   assert.equal(config.build, undefined);
   assert.equal(config.sealDice.defaultTarget, '1.6.0');
 });
 
-test('schema v1 rejects compatibility and legacy targets', async () => {
+test('schema v2 rejects compatibility and legacy target fields', async () => {
   const config = resourceConfig() as any;
-  config.sealDice.profiles = [{ id: 'compat-1.5', kind: 'compatibility' }];
-  config.sealDice.defaultTarget = 'compat-1.5';
+  config.sealDice.profiles = [{ id: '1.6.0', kind: 'exact' }];
   const root = await fixture(config);
-  await assert.rejects(() => loadProjectConfig(root), /exact.*1\.6\.0/i);
+  await assert.rejects(() => loadProjectConfig(root), /profiles.*unsupported/i);
 });
 
-test('schema v1 rejects unknown and legacy configuration fields instead of silently ignoring them', async () => {
+test('schema v2 rejects unknown and legacy configuration fields instead of silently ignoring them', async () => {
   const config = resourceConfig() as any;
   config.extension = { entry: 'legacy-extension.js' };
   const root = await fixture(config);
@@ -61,7 +60,7 @@ test('schema v1 rejects unknown and legacy configuration fields instead of silen
   await assert.rejects(() => loadProjectConfig(nestedRoot), /glob.*unsupported/i);
 });
 
-test('schema v1 rejects metadata control characters and invalid SemVer prerelease identifiers', async () => {
+test('schema v2 rejects metadata control characters and invalid SemVer prerelease identifiers', async () => {
   const newline = resourceConfig() as any;
   newline.package.description = 'unsafe\n// @grant        none';
   const newlineRoot = await fixture(newline);
@@ -83,7 +82,7 @@ test('schema v1 rejects metadata control characters and invalid SemVer prereleas
   await assert.rejects(() => loadProjectConfig(leadingZeroRoot), /canonical semantic version/i);
 });
 
-test('schema v1 validates optional store asset values by type', async () => {
+test('schema v2 validates optional store asset values by type', async () => {
   for (const value of [null, false, 0, {}]) {
     const config = resourceConfig() as any;
     config.sealpack.store.icon = value;

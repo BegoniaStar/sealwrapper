@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 
 import { SealwrapperError } from './errors.ts';
 import { canonicalJson } from './capabilities.ts';
+import type { TargetDescriptor } from './pinned-target.ts';
+
+type BridgeTarget = TargetDescriptor & { testOverlay: TargetDescriptor['testOverlay'] & { digest?: string } };
 
 type ProcessResult = { code: number; stdout: string; stderr: string; timedOut: boolean };
 
@@ -54,7 +57,7 @@ function run(program: string, args: string[], options: { cwd: string; env: Recor
   });
 }
 
-export function verifyBridgeResult(result: any, target: any) {
+export function verifyBridgeResult(result: any, target: BridgeTarget) {
   if (!result || result.protocol !== target.testOverlay.protocol) throw new SealwrapperError('Bridge protocol mismatch', 3);
   if (result.base?.commit !== target.core.commit) throw new SealwrapperError('Bridge base commit mismatch', 3);
   if (result.base?.runtimeVersion !== target.core.runtimeVersion) throw new SealwrapperError('Bridge distribution runtime version mismatch', 3);
@@ -68,7 +71,7 @@ export function verifyBridgeResult(result: any, target: any) {
   return result;
 }
 
-export async function invokeBridge({ worktree, target, operation, archive = '', archives = [], scenario = {}, timeoutMs = 120_000 }: { worktree: string; target: any; operation: string; archive?: string; archives?: string[]; scenario?: any; timeoutMs?: number }): Promise<any> {
+export async function invokeBridge({ worktree, target, operation, archive = '', archives = [], scenario = {}, timeoutMs = 120_000 }: { worktree: string; target: BridgeTarget; operation: string; archive?: string; archives?: string[]; scenario?: any; timeoutMs?: number }): Promise<any> {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw new SealwrapperError('Bridge timeout must be between 1ms and 300000ms', 2);
   const directory = await mkdtemp(join(tmpdir(), 'sealwrapper-bridge-'));
   const requestPath = join(directory, 'request.json');
