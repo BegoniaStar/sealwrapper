@@ -91,15 +91,15 @@ test('schema v1 is rejected instead of being interpreted as a target matrix', ()
 
 test('target-aware lock rendering records the complete matrix and default target', () => {
   const rendered = JSON.parse(renderSealLock(matrixRegistry, ['1.7.0', '1.6.0'], '1.7.0'));
-  assert.equal(rendered.lockVersion, 2);
-  assert.equal(rendered.registryVersion, 1);
+  assert.equal(rendered.lockVersion, 3);
+  assert.equal(rendered.registryVersion, 2);
   assert.deepEqual(rendered.buildTargets, ['1.6.0', '1.7.0']);
   assert.equal(rendered.defaultTarget, '1.7.0');
   assert.deepEqual(Object.keys(rendered.targets), ['1.6.0', '1.7.0']);
 });
 
 test('lock diffs include target-set metadata changes as reviewable lines', () => {
-  const previous = { lockVersion: 2, registryVersion: 1, buildTargets: ['1.6.0'], defaultTarget: '1.6.0', targets: { '1.6.0': pinnedTarget } };
+  const previous = { lockVersion: 3, registryVersion: 2, buildTargets: ['1.6.0'], defaultTarget: '1.6.0', targets: { '1.6.0': pinnedTarget } };
   const next = { ...previous, buildTargets: ['1.6.0', '1.7.0'], defaultTarget: '1.7.0', targets: { ...previous.targets, '1.7.0': syntheticTarget('1.7.0') } };
   const diff = describeLockDiff(previous, next);
   assert.ok(diff.includes('buildTargets: 1.6.0 -> 1.6.0, 1.7.0'));
@@ -107,13 +107,13 @@ test('lock diffs include target-set metadata changes as reviewable lines', () =>
   assert.ok(diff.includes('1.7.0: added target'));
 });
 
-test('lock v2 rejects target-set and default mismatches before core validation', () => {
+test('lock v3 rejects target-set and default mismatches before core validation', () => {
   const validShape = JSON.parse(renderSealLock({ '1.6.0': pinnedTarget }, ['1.6.0'], '1.6.0'));
   assert.throws(() => validateSealLock({ ...validShape, defaultTarget: '1.7.0' }, process.cwd()), /defaultTarget/);
   assert.throws(() => validateSealLock({ ...validShape, buildTargets: ['1.6.0', '1.7.0'] }, process.cwd()), /unknown target/);
   assert.throws(() => validateSealLock({ ...validShape, buildTargets: ['9.9.9'] }, process.cwd()), /unknown target/);
 });
 
-test('lock v1 is rejected instead of being interpreted as a target matrix', () => {
-  assert.throws(() => validateSealLock({ lockVersion: 1, targets: { '1.6.0': pinnedTarget } }, process.cwd()), /lockVersion: 2/);
+test('older locks are rejected instead of being interpreted as a target matrix', () => {
+  assert.throws(() => validateSealLock({ lockVersion: 2, targets: { '1.6.0': pinnedTarget } }, process.cwd()), /lockVersion: 3/);
 });

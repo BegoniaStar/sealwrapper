@@ -100,9 +100,32 @@ async function assertRegularFile(path: string, label: string): Promise<void> {
   if (!stat.isFile()) throw new SealwrapperError(`${label} is not a regular file`, 3);
 }
 
-async function assertExactGo(version: string) {
-  const output = await checked('go', ['version']);
-  if (!output.includes(`go${version} `)) throw new SealwrapperError(`Go ${version} is required by seal.lock; found ${output}`, 2);
+export type ToolchainDiagnostic = { tool: 'node' | 'git' | 'go'; ok: boolean; required?: string; found: string; message: string };
+
+/** Probe every prerequisite before any mirror, worktree, or generated state is touched. */
+export async function diagnoseToolchain(goVersions: readonly string[] = []): Promise<{ ok: boolean; diagnostics: ToolchainDiagnostic[]; node: string; git: string; go: string }> {
+  const probe = async (program: string, args: string[]): Promise<CommandResult> => {
+    try { return await command(program, args); }
+    catch (error) { return { code: 127, stdout: '', stderr: error instanceof Error ? error.message : String(error) }; }
+  };
+  const node = process.versions.node;
+  const nodeParts = node.split('.').map((part) => Number(part));
+  const nodeOk = nodeParts[0] === 26 && nodeParts[1] >= 5;
+  const diagnostics: ToolchainDiagnostic[] = [{ tool: 'node', ok: nodeOk, required: '>=26.5.0 <27', found: node, message: nodeOk ? `Node ${node}` : `Node >=26.5.0 <27 is required; found ${node}` }];
+  const gitResult = await probe('git', ['--version']);
+  const git = (gitResult.stdout || gitResult.stderr).trim();
+  diagnostics.push({ tool: 'git', ok: gitResult.code === 0, found: git || 'unavailable', message: gitResult.code === 0 ? git : 'Git is required by seal.lock; unavailable' });
+  const goResult = await probe('go', ['version']);
+  const go = (goResult.stdout || goResult.stderr).trim();
+  const expected = [...new Set(goVersions)];
+  const goOk = goResult.code === 0 && expected.every((version) => go.includes(`go${version} `));
+  const required = expected.length ? expected.join(', ') : undefined;
+  diagnostics.push({ tool: 'go', ok: goOk, required, found: go || 'unavailable', message: goResult.code !== 0 ? `Go ${required ?? 'toolchain'} required by seal.lock; unavailable` : goOk ? go : `Go ${required} required by seal.lock; found ${go}` });
+  return { ok: diagnostics.every((item) => item.ok), diagnostics, node, git, go };
+}
+
+export function toolchainError(diagnostics: readonly ToolchainDiagnostic[]): SealwrapperError {
+  return new SealwrapperError(`Toolchain preflight failed:\n${diagnostics.filter((item) => !item.ok).map((item) => `- ${item.message}`).join('\n')}`, 2);
 }
 
 async function ensureMirror(paths: ReturnType<typeof corePaths>, core: any, offline: boolean) {
@@ -197,7 +220,8 @@ export async function coreSync(projectRoot: string, { targetId, offline = false 
   const lock = await loadSealLock(projectRoot, toolRoot);
   const selectedTargetId = targetId ?? lockDefaultTarget(lock);
   const target = lockedTarget(lock, selectedTargetId);
-  await assertExactGo(target.testOverlay.goVersion);
+  const toolchain = await diagnoseToolchain([target.testOverlay.goVersion]);
+  if (!toolchain.ok) throw toolchainError(toolchain.diagnostics);
   const paths = corePaths(projectRoot, selectedTargetId);
   await assertManagedPath(paths.seal, paths.projectRoot);
   await assertManagedPath(paths.base, paths.projectRoot);

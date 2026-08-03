@@ -13,7 +13,7 @@ export type LockedTarget = TargetDescriptor & {
 };
 
 export type SealLock = {
-  lockVersion: 2;
+  lockVersion: 3;
   registryVersion: number;
   buildTargets: string[];
   defaultTarget: string;
@@ -115,6 +115,9 @@ export function describeLockDiff(previous: unknown, next: any): string[] {
   if (oldDefaultTarget !== newDefaultTarget) lines.push(`defaultTarget: ${oldDefaultTarget ?? '<none>'} -> ${newDefaultTarget ?? '<none>'}`);
   const oldRegistryVersion = isRecord(previous) && typeof previous.registryVersion === 'number' ? previous.registryVersion : undefined;
   const newRegistryVersion = typeof next.registryVersion === 'number' ? next.registryVersion : undefined;
+  const oldLockVersion = isRecord(previous) && typeof previous.lockVersion === 'number' ? previous.lockVersion : undefined;
+  const newLockVersion = typeof next.lockVersion === 'number' ? next.lockVersion : undefined;
+  if (oldLockVersion !== newLockVersion) lines.push(`lockVersion: ${oldLockVersion ?? '<none>'} -> ${newLockVersion ?? '<none>'}`);
   if (oldRegistryVersion !== newRegistryVersion) lines.push(`registryVersion: ${oldRegistryVersion ?? '<none>'} -> ${newRegistryVersion ?? '<none>'}`);
   const compare = (id: string, label: string, left: unknown, right: unknown) => {
     if (left !== right) lines.push(`${ids.length === 1 ? '' : `${id} `}${label}: ${typeof left === 'string' ? left : '<none>'} -> ${typeof right === 'string' ? right : '<none>'}`);
@@ -153,7 +156,7 @@ export function describeLockDiff(previous: unknown, next: any): string[] {
 }
 
 export function validateSealLock(raw: unknown, overlayRoot: string, registry: Readonly<Record<string, TargetDescriptor>> = targetRegistry): SealLock {
-  invariant(isRecord(raw) && raw.lockVersion === 2 && isRecord(raw.targets), 'seal.lock must use lockVersion: 2');
+  invariant(isRecord(raw) && raw.lockVersion === 3 && isRecord(raw.targets), 'seal.lock must use lockVersion: 3');
   invariant(raw.registryVersion === targetRegistryVersion, `seal.lock.registryVersion must be ${targetRegistryVersion}`);
   const buildTargets = validateTargetIds(raw.buildTargets, 'seal.lock.buildTargets', registry);
   invariant(typeof raw.defaultTarget === 'string' && buildTargets.includes(raw.defaultTarget), 'seal.lock.defaultTarget must be one of seal.lock.buildTargets');
@@ -161,7 +164,7 @@ export function validateSealLock(raw: unknown, overlayRoot: string, registry: Re
   invariant(keys.length === buildTargets.length && keys.every((id) => buildTargets.includes(id)), 'seal.lock.targets must exactly match seal.lock.buildTargets');
   const targets: Record<string, LockedTarget> = {};
   for (const id of buildTargets) targets[id] = validateTarget(raw.targets[id], overlayRoot, id, registry);
-  return { lockVersion: 2, registryVersion: targetRegistryVersion, buildTargets, defaultTarget: raw.defaultTarget, targets };
+  return { lockVersion: 3, registryVersion: targetRegistryVersion, buildTargets, defaultTarget: raw.defaultTarget, targets };
 }
 
 export async function loadSealLock(projectRoot: string, overlayRoot: string): Promise<SealLock> {
@@ -210,5 +213,5 @@ function renderInput(input: TargetDescriptor | Record<string, TargetDescriptor>,
 /** Render the current lock schema from either one descriptor or a target map. */
 export function renderSealLock(input: TargetDescriptor | Record<string, TargetDescriptor>, buildTargets?: readonly string[], defaultTarget?: string): string {
   const rendered = renderInput(input, buildTargets, defaultTarget);
-  return `${JSON.stringify({ lockVersion: 2, registryVersion: targetRegistryVersion, buildTargets: rendered.buildTargets, defaultTarget: rendered.defaultTarget, targets: rendered.targets }, null, 2)}\n`;
+  return `${JSON.stringify({ lockVersion: 3, registryVersion: targetRegistryVersion, buildTargets: rendered.buildTargets, defaultTarget: rendered.defaultTarget, targets: rendered.targets }, null, 2)}\n`;
 }

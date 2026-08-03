@@ -1,6 +1,6 @@
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
-import { access, link, lstat, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { access, link, lstat, mkdir, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { SealwrapperError } from './errors.ts';
@@ -9,6 +9,52 @@ import { compareTargetIds, type TargetDescriptor } from './pinned-target.ts';
 import { verifyTargetTrust } from './trust.ts';
 
 const toolRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+function isWithin(root: string, candidate: string): boolean {
+  const child = relative(root, candidate);
+  return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+}
+
+/**
+ * Release output is a project-owned write target. A lexical `release.directory`
+ * check is not sufficient because an existing path component can be a symlink
+ * to an arbitrary directory. Reject such components before creating or linking
+ * any artifact, and re-check after mkdir in case the directory was created by
+ * this invocation.
+ */
+async function assertProjectReleaseDirectory(projectRoot: string, releaseDirectory: string): Promise<string> {
+  const configuredRoot = resolve(projectRoot);
+  const directory = resolve(releaseDirectory);
+  if (!isWithin(configuredRoot, directory)) throw new SealwrapperError(`Release directory escapes the project root: ${releaseDirectory}`, 3);
+  let resolvedRoot: string;
+  try {
+    resolvedRoot = await realpath(configuredRoot);
+  } catch (error: any) {
+    throw new SealwrapperError(`Project root cannot be resolved for release publication: ${configuredRoot}${error?.message ? ` (${error.message})` : ''}`, 3);
+  }
+  let current = configuredRoot;
+  for (const segment of relative(configuredRoot, directory).split(sep).filter(Boolean)) {
+    current = join(current, segment);
+    let stat;
+    try {
+      stat = await lstat(current);
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') break;
+      throw new SealwrapperError(`Unable to inspect release directory ${current}: ${error?.message ?? error}`, 3);
+    }
+    if (stat.isSymbolicLink()) throw new SealwrapperError(`Refusing symbolic-link release directory component: ${relative(configuredRoot, current)}`, 3);
+    let resolvedCurrent: string;
+    try {
+      resolvedCurrent = await realpath(current);
+    } catch (error: any) {
+      throw new SealwrapperError(`Unable to resolve release directory ${current}: ${error?.message ?? error}`, 3);
+    }
+    if (!isWithin(resolvedRoot, resolvedCurrent)) throw new SealwrapperError(`Release directory resolves outside the project root: ${relative(configuredRoot, current)}`, 3);
+  }
+  const stat = await lstat(directory).catch((error: any) => error?.code === 'ENOENT' ? undefined : Promise.reject(error));
+  if (stat && !stat.isDirectory()) throw new SealwrapperError(`Release directory is not a directory: ${directory}`, 3);
+  return directory;
+}
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -26,7 +72,7 @@ function releaseTimestamp() {
   return new Date(Number(epoch) * 1000).toISOString();
 }
 
-type LockBinding = { digest: string; registryVersion: number; buildTargets: string[]; defaultTarget: string };
+type LockBinding = { digest: string; lockVersion: number; registryVersion: number; buildTargets: string[]; defaultTarget: string };
 
 function targetId(target: TargetDescriptor): string {
   return target.id || target.core.version;
@@ -74,6 +120,7 @@ async function lockBinding(projectRoot: string, targets: readonly TargetDescript
   }
   return {
     digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    lockVersion: lock.lockVersion,
     registryVersion: lock.registryVersion,
     buildTargets: [...lock.buildTargets].sort(compareTargetIds),
     defaultTarget: lock.defaultTarget,
@@ -116,7 +163,7 @@ export async function renderReleaseProvenance({ projectRoot, artifact, config, t
       buildTargets: selectedIds,
       defaultTarget: matrixDefault,
     },
-    lock: { sha256: lock.digest, registryVersion: lock.registryVersion, buildTargets: lock.buildTargets, defaultTarget: lock.defaultTarget },
+    lock: { sha256: lock.digest, lockVersion: lock.lockVersion, registryVersion: lock.registryVersion, buildTargets: lock.buildTargets, defaultTarget: lock.defaultTarget },
   };
   if (selectedTargets.length === 1) {
     manifest.target = targetId(primary);
@@ -139,10 +186,11 @@ export async function renderReleaseProvenance({ projectRoot, artifact, config, t
  * is removed again. This is intentionally stricter than replacing a prior
  * versioned release: authors must change package.version to publish anew.
  */
-export async function publishReleaseFiles({ releaseDirectory, files }: { releaseDirectory: string; files: { source: string; name: string }[] }): Promise<string[]> {
+export async function publishReleaseFiles({ projectRoot, releaseDirectory, files }: { projectRoot: string; releaseDirectory: string; files: { source: string; name: string }[] }): Promise<string[]> {
+  const directory = await assertProjectReleaseDirectory(projectRoot, releaseDirectory);
   const safe = files.map((file) => {
     if (basename(file.name) !== file.name || !file.name || file.name.includes('..')) throw new Error(`Unsafe release filename: ${file.name}`);
-    return { ...file, destination: join(releaseDirectory, file.name) };
+    return { ...file, destination: join(directory, file.name) };
   });
   if (new Set(safe.map((file) => file.name)).size !== safe.length) throw new Error('Release files contain duplicate names');
   for (const file of safe) {
@@ -151,14 +199,16 @@ export async function publishReleaseFiles({ releaseDirectory, files }: { release
   }
   let madeDirectory = false;
   try {
-    try { await access(releaseDirectory); } catch (error: any) {
+    try { await access(directory); } catch (error: any) {
       if (error?.code !== 'ENOENT') throw error;
-      await mkdir(releaseDirectory, { recursive: true, mode: 0o755 });
+      await mkdir(directory, { recursive: true, mode: 0o755 });
       madeDirectory = true;
     }
+    await assertProjectReleaseDirectory(projectRoot, directory);
     const published: string[] = [];
     try {
       for (const file of safe) {
+        await assertProjectReleaseDirectory(projectRoot, directory);
         await link(file.source, file.destination);
         published.push(file.destination);
       }
@@ -169,7 +219,7 @@ export async function publishReleaseFiles({ releaseDirectory, files }: { release
       throw error;
     }
   } catch (error) {
-    if (madeDirectory) await rm(releaseDirectory, { force: true, recursive: false }).catch(() => {});
+    if (madeDirectory) await rm(directory, { force: true, recursive: false }).catch(() => {});
     throw error;
   }
 }

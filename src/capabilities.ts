@@ -5,6 +5,7 @@ export type BridgeCapabilities = {
   manifestFormatVersions: string[];
   contents: Record<string, { extensions: string[] }>;
   limits: { maxFiles: number; maxArchiveBytes: number; maxExpandedBytes: number; maxCompressionRatio: number };
+  networkMock: { version: string; failClosed: boolean; requestFields: string[]; responseFields: string[] };
 };
 
 /** Canonical JSON shared by the lock, Node verifier and Go test overlay. */
@@ -22,7 +23,7 @@ export function capabilitiesDigest(capabilities: BridgeCapabilities): string {
 }
 
 export const bridgeCapabilitiesV2: BridgeCapabilities = {
-  protocol: 'sealwrapper.core-bridge/v2',
+  protocol: 'sealwrapper.core-bridge/v3',
   manifestFormatVersions: ['1.0.0'],
   contents: {
     scripts: { extensions: ['.js'] },
@@ -32,6 +33,12 @@ export const bridgeCapabilitiesV2: BridgeCapabilities = {
     templates: { extensions: ['.json', '.yaml', '.yml'] },
   },
   limits: { maxFiles: 65_535, maxArchiveBytes: 134_217_728, maxExpandedBytes: 536_870_912, maxCompressionRatio: 100 },
+  networkMock: {
+    version: '1',
+    failClosed: true,
+    requestFields: ['method', 'url', 'headers', 'body'],
+    responseFields: ['status', 'headers', 'body'],
+  },
 };
 
 function flatten(value: unknown, prefix = ''): Map<string, string> {

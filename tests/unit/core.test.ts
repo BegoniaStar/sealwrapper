@@ -23,7 +23,7 @@ test('pinned 1.6.0 provenance keeps distribution runtime distinct from source de
   assert.equal(pinnedTarget.core.runtimeVersion, '1.6.0+20260726');
   assert.equal(pinnedTarget.core.sourceDeclaredVersion, '1.5.1-dev');
   assert.equal(pinnedTarget.testOverlay.goVersion, '1.25.0');
-  assert.equal(pinnedTarget.testOverlay.protocol, 'sealwrapper.core-bridge/v2');
+  assert.equal(pinnedTarget.testOverlay.protocol, 'sealwrapper.core-bridge/v3');
   assert.equal(pinnedTarget.testOverlay.capabilities.limits.maxCompressionRatio, 100);
 });
 

@@ -69,30 +69,30 @@ const registry = {
       },
     },
     testOverlay: {
-      id: 'sealwrapper-core-overlay/2',
-      protocol: 'sealwrapper.core-bridge/v2',
+      id: 'sealwrapper-core-overlay/3',
+      protocol: 'sealwrapper.core-bridge/v3',
       goVersion: '1.25.0',
       capabilities: bridgeCapabilitiesV2,
       capabilitiesSha256: capabilitiesDigest(bridgeCapabilitiesV2),
       patches: [{
         path: 'patches/sealdice-core/1.6.0/0001-test-only-bridge.patch',
-        sha256: '94682a9aca040ec23cc07fbe1641af5255c395172f9f416bb24f5d1ca8ce2e25',
+        sha256: '45c214ed458f2c79f11e54b54ad288207592462ac8074b6a12c679edc99da025',
       }],
     },
     trust: {
-      activeKeyId: 'sealwrapper-2026-08-host-config3',
+      activeKeyId: 'sealwrapper-2026-08-overlay-root-reset1',
       keys: [{
-        id: 'sealwrapper-2026-08-host-config3',
+        id: 'sealwrapper-2026-08-overlay-root-reset1',
         algorithm: 'ed25519',
-        publicKey: 'MCowBQYDK2VwAyEATonx6ZbXFa40PK2/I88xZtJQCHxPYqE2jGYZSWe00BI=',
+        publicKey: 'MCowBQYDK2VwAyEAZ2vjgSNCynD97r9nRcSt4PD52GEBMWIPnnx5/1Po/1E=',
       }],
       rotations: [],
       // New mirrors must be added here and covered by a newly signed descriptor.
       allowedMirrors: ['https://github.com/sealdice/sealdice-core'],
       overlaySignature: {
-        keyId: 'sealwrapper-2026-08-host-config3',
+        keyId: 'sealwrapper-2026-08-overlay-root-reset1',
         algorithm: 'ed25519',
-        value: 'd77dRRJ2BewIHMiEF+V2OQRodM4zo/UoEawDV87q+//kbvTb9jg2ybWvzZ8BS39W1hIjb1zWgiG9H1m7EwZwDQ==',
+        value: '6QwuTwhir+7eAQCbWUCg0oC7O8X/3MttwncuwA3/+mSZUivgU44A7yEVqyPTRNloIvyAdblL33KgwFNvAIHgAA==',
       },
     },
   },
@@ -102,7 +102,7 @@ const registry = {
 export const targetRegistry = deepFreeze(registry);
 
 export const defaultTargetId: TargetId = '1.6.0';
-export const targetRegistryVersion = 1;
+export const targetRegistryVersion = 2;
 
 /** Backwards-compatible alias for the current default registry entry. */
 export const pinnedTarget = (targetRegistry as Readonly<Record<string, TargetDescriptor>>)[defaultTargetId];

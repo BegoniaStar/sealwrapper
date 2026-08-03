@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { access, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -172,6 +172,18 @@ test('scenarios can deterministically inject fake-host dice masters and register
   assert.throws(() => normalizeScenario({ messages: [{ text: 'x', role: 'superuser' }] }), /role/);
 });
 
+test('network mock routes are normalized and reject unsafe declarations', () => {
+  const scenario = normalizeScenario({
+    messages: [],
+    network: {
+      routes: [{ method: 'GET', url: 'http://api.example.test/data?q=1', headers: { accept: 'application/json' }, response: { status: 200, headers: { 'content-type': 'application/json' }, body: '{}' } }],
+    },
+  });
+  assert.equal(scenario.network.routes[0].response.status, 200);
+  assert.throws(() => normalizeScenario({ messages: [], network: { routes: [{ method: 'GET', url: '/relative', response: { status: 200, body: '' } }] } }), /absolute HTTP/);
+  assert.throws(() => normalizeScenario({ messages: [], network: { routes: [{ method: 'GET', url: 'http://api.example.test', response: { status: 700, body: '' } }] } }), /HTTP status/);
+});
+
 test('P2 scenarios preserve declared inbound QQ segments without granting URL or filesystem access', () => {
   const scenario = normalizeScenario({ messages: [{ qq: '10001', segments: [{ type: 'at', target: '10002' }, { type: 'text', text: 'hello' }, { type: 'image', url: 'https://example.invalid/image.png', alt: '图' }] }] });
   assert.equal(scenario.messages[0].text, 'hello');
@@ -275,7 +287,7 @@ test('release publication never overwrites or partially creates a release set', 
   await writeFile(join(staging, 'fixture.sealpack.release.json'), 'provenance');
   await mkdir(release, { recursive: true });
   await writeFile(join(release, 'fixture.sealpack.release.json'), 'existing');
-  await assert.rejects(() => publishReleaseFiles({ releaseDirectory: release, files: [
+  await assert.rejects(() => publishReleaseFiles({ projectRoot: root, releaseDirectory: release, files: [
     { source: join(staging, 'fixture.sealpack'), name: 'fixture.sealpack' },
     { source: join(staging, 'fixture.sealpack.sha256'), name: 'fixture.sealpack.sha256' },
     { source: join(staging, 'fixture.sealpack.release.json'), name: 'fixture.sealpack.release.json' },
@@ -283,5 +295,24 @@ test('release publication never overwrites or partially creates a release set', 
   await assert.rejects(() => access(join(release, 'fixture.sealpack')));
   await assert.rejects(() => access(join(release, 'fixture.sealpack.sha256')));
   assert.equal(await readFile(join(release, 'fixture.sealpack.release.json'), 'utf8'), 'existing');
+  await access(join(staging, 'fixture.sealpack'));
+});
+
+test('release publication rejects a symbolic-link directory that escapes the project root', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'sealwrapper-release-symlink-'));
+  const outside = await mkdtemp(join(tmpdir(), 'sealwrapper-release-outside-'));
+  const staging = join(root, '.seal', 'release-tmp');
+  await mkdir(staging, { recursive: true });
+  await writeFile(join(staging, 'fixture.sealpack'), 'archive');
+  try {
+    await symlink(outside, join(root, 'release'));
+  } catch (error: any) {
+    if (error?.code === 'EPERM') return t.skip('symlinks are unavailable on this platform');
+    throw error;
+  }
+  await assert.rejects(() => publishReleaseFiles({ projectRoot: root, releaseDirectory: join(root, 'release'), files: [
+    { source: join(staging, 'fixture.sealpack'), name: 'fixture.sealpack' },
+  ] }), /symbolic-link release directory component/i);
+  await assert.rejects(() => access(join(outside, 'fixture.sealpack')));
   await access(join(staging, 'fixture.sealpack'));
 });

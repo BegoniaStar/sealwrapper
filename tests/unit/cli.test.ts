@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, mkdir, readFile, symlink } from 'node:fs/promises';
+import { access, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -117,5 +117,24 @@ test('scenario test fails before core access when its scenario directory is empt
   await assert.rejects(
     () => runCli(['scenario', 'test'], { cwd: destination, write: () => {} }),
     /No scenario files found under tests\/scenarios/,
+  );
+});
+
+test('scenario test rejects an additional sealpack symlink before it accesses a managed core', async (t) => {
+  const destination = join(tmpdir(), `sealwrapper-scenario-package-symlink-${Date.now()}`);
+  const outside = join(tmpdir(), `sealwrapper-outside-package-${Date.now()}.sealpack`);
+  await runCli(['init', destination, '--kind', 'resource', '--no-sync'], { cwd: process.cwd(), write: () => {} });
+  await mkdir(join(destination, 'tests', 'scenarios'), { recursive: true });
+  await writeFile(outside, 'outside package');
+  try {
+    await symlink(outside, join(destination, 'linked.sealpack'));
+  } catch (error: any) {
+    if (error?.code === 'EPERM') return t.skip('symlinks are unavailable on this platform');
+    throw error;
+  }
+  await writeFile(join(destination, 'tests', 'scenarios', 'linked.json'), `${JSON.stringify({ messages: [], packages: ['linked.sealpack'] })}\n`);
+  await assert.rejects(
+    () => runCli(['scenario', 'test'], { cwd: destination, write: () => {} }),
+    /Scenario package must not be a symbolic link: linked\.sealpack/,
   );
 });

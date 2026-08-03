@@ -11,13 +11,14 @@ import { pinnedTarget } from '../../src/pinned-target.ts';
 test('bridge result requires exact base, distribution runtime, overlay, and capabilities', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sealwrapper-bridge-result-'));
   const result = {
-    protocol: 'sealwrapper.core-bridge/v2',
+    protocol: 'sealwrapper.core-bridge/v3',
     base: { commit: pinnedTarget.core.commit, runtimeVersion: pinnedTarget.core.runtimeVersion, sourceDeclaredVersion: '1.5.1-dev' },
     overlay: { id: pinnedTarget.testOverlay.id, digest: 'sha256:test' },
     capabilitiesDigest: pinnedTarget.testOverlay.capabilitiesSha256,
     manifestFormatVersions: pinnedTarget.testOverlay.capabilities.manifestFormatVersions,
     contents: pinnedTarget.testOverlay.capabilities.contents,
     limits: pinnedTarget.testOverlay.capabilities.limits,
+    networkMock: pinnedTarget.testOverlay.capabilities.networkMock,
     ok: true, diagnostics: [], summary: { errors: 0, warnings: 0 },
   };
   assert.throws(() => verifyBridgeResult(result, { ...pinnedTarget, testOverlay: { ...pinnedTarget.testOverlay, digest: 'sha256:expected' } }), /overlay/i);
@@ -28,13 +29,14 @@ test('bridge result requires exact base, distribution runtime, overlay, and capa
 
 test('bridge result must explicitly attest production equivalence', () => {
   const result = {
-    protocol: 'sealwrapper.core-bridge/v2',
+    protocol: 'sealwrapper.core-bridge/v3',
     base: { commit: pinnedTarget.core.commit, runtimeVersion: pinnedTarget.core.runtimeVersion, sourceDeclaredVersion: pinnedTarget.core.sourceDeclaredVersion },
     overlay: { id: pinnedTarget.testOverlay.id },
     capabilitiesDigest: pinnedTarget.testOverlay.capabilitiesSha256,
     manifestFormatVersions: pinnedTarget.testOverlay.capabilities.manifestFormatVersions,
     contents: pinnedTarget.testOverlay.capabilities.contents,
     limits: pinnedTarget.testOverlay.capabilities.limits,
+    networkMock: pinnedTarget.testOverlay.capabilities.networkMock,
     ok: true,
     diagnostics: [],
     summary: { errors: 0, warnings: 0 },

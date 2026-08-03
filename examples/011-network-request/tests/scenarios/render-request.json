@@ -1,7 +1,15 @@
 {
   "release": true,
-  "title": "网络请求示例生成离线 URL",
+  "title": "网络请求示例使用 hermetic HTTP mock",
   "clock": "2026-08-01T00:00:00Z",
+  "network": {
+    "routes": [{
+      "method": "GET",
+      "url": "http://api-music.imsyy.top/cloudsearch?keywords=%E7%A8%BB%E9%A6%99",
+      "headers": { "accept": "application/json" },
+      "response": { "status": 200, "headers": { "content-type": "application/json" }, "body": "{\"result\":{\"songs\":[{\"name\":\"稻香\"}]}}" }
+    }]
+  },
   "messages": [{ "sequence": 1, "qq": "3909311212", "nickname": "Alice", "text": ".musicsearch 稻香" }],
-  "expect": { "outputs": [{ "inReplyToSequence": 1, "text": "网络请求示例（未发送）：https://api-music.imsyy.top/cloudsearch?keywords=%E7%A8%BB%E9%A6%99" }] }
+  "expect": { "outputs": [{ "inReplyToSequence": 1, "text": "搜索结果：稻香" }] }
 }

@@ -5,6 +5,11 @@ function object(value: unknown, label: string): Record<string, any> {
   return value as Record<string, any>;
 }
 
+function array(value: unknown, label: string): any[] {
+  invariant(Array.isArray(value), `${label} must be an array`);
+  return value;
+}
+
 function outputEvents(transcript: any): any[] {
   return Array.isArray(transcript?.messages) ? transcript.messages.filter((message: any) => message?.direction === 'out') : [];
 }
@@ -42,6 +47,34 @@ function host(value: unknown): Record<string, any> {
     }
   }
   return result;
+}
+
+function network(value: unknown): Record<string, any> {
+  const raw = structuredClone(object(value, 'scenario.network'));
+  for (const key of Object.keys(raw)) invariant(['routes'].includes(key), `scenario.network.${key} is unsupported`);
+  const routes = raw.routes === undefined ? [] : array(raw.routes, 'scenario.network.routes');
+  return {
+    routes: routes.map((entry: unknown, index: number) => {
+      const route = object(entry, `scenario.network.routes[${index}]`);
+      for (const key of Object.keys(route)) invariant(['method', 'url', 'headers', 'body', 'response'].includes(key), `scenario.network.routes[${index}].${key} is unsupported`);
+      invariant(typeof route.method === 'string' && /^[A-Za-z]+$/.test(route.method), `scenario.network.routes[${index}].method must be an HTTP method`);
+      invariant(typeof route.url === 'string' && /^http:\/\/[^\s]+$/u.test(route.url), `scenario.network.routes[${index}].url must be an absolute HTTP URL`);
+      if (route.headers !== undefined) {
+        const headers = object(route.headers, `scenario.network.routes[${index}].headers`);
+        for (const [name, value] of Object.entries(headers)) invariant(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/u.test(name) && typeof value === 'string', `scenario.network.routes[${index}].headers.${name} must be a string`);
+        route.headers = headers;
+      } else route.headers = {};
+      if (route.body !== undefined) invariant(typeof route.body === 'string', `scenario.network.routes[${index}].body must be a string`);
+      const response = object(route.response, `scenario.network.routes[${index}].response`);
+      for (const key of Object.keys(response)) invariant(['status', 'headers', 'body'].includes(key), `scenario.network.routes[${index}].response.${key} is unsupported`);
+      invariant(Number.isInteger(response.status) && response.status >= 100 && response.status <= 599, `scenario.network.routes[${index}].response.status must be an HTTP status`);
+      const responseHeaders = response.headers === undefined ? {} : object(response.headers, `scenario.network.routes[${index}].response.headers`);
+      for (const [name, value] of Object.entries(responseHeaders)) invariant(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/u.test(name) && typeof value === 'string', `scenario.network.routes[${index}].response.headers.${name} must be a string`);
+      invariant(typeof response.body === 'string', `scenario.network.routes[${index}].response.body must be a string`);
+      route.response = { status: response.status, headers: responseHeaders, body: response.body };
+      return route;
+    }),
+  };
 }
 
 function messageSegments(value: unknown, label: string): any[] {
@@ -178,6 +211,7 @@ export function normalizeScenario(raw: unknown): any {
   if (scenario.seed !== undefined) invariant(Number.isInteger(scenario.seed) && scenario.seed >= 0 && scenario.seed <= 0x7fffffff, 'scenario.seed must be a non-negative 31-bit integer');
   else scenario.seed = 0;
   scenario.host = scenario.host === undefined ? { diceMasters: [], extensionConfigs: {} } : host(scenario.host);
+  scenario.network = scenario.network === undefined ? { routes: [] } : network(scenario.network);
   if (scenario.variables !== undefined) scalarVariables(scenario.variables, 'scenario.variables');
   if (scenario.users !== undefined) {
     const users = object(scenario.users, 'scenario.users');

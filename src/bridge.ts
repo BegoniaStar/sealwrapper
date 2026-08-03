@@ -64,7 +64,7 @@ export function verifyBridgeResult(result: any, target: BridgeTarget) {
   if (result.base?.sourceDeclaredVersion !== target.core.sourceDeclaredVersion) throw new SealwrapperError('Bridge source declared version mismatch', 3);
   if (result.overlay?.id !== target.testOverlay.id || result.overlay?.digest !== target.testOverlay.digest) throw new SealwrapperError('Bridge overlay digest mismatch', 3);
   if (result.capabilitiesDigest !== target.testOverlay.capabilitiesSha256) throw new SealwrapperError('Bridge capabilities digest mismatch', 3);
-  const observedCapabilities = { protocol: result.protocol, manifestFormatVersions: result.manifestFormatVersions, contents: result.contents, limits: result.limits };
+  const observedCapabilities = { protocol: result.protocol, manifestFormatVersions: result.manifestFormatVersions, contents: result.contents, limits: result.limits, networkMock: result.networkMock };
   if (canonicalJson(observedCapabilities) !== canonicalJson(target.testOverlay.capabilities)) throw new SealwrapperError('Bridge capability contract mismatch', 3);
   if (result.nonProductionEquivalent !== false) throw new SealwrapperError('A non-production-equivalent bridge result cannot satisfy the P0 gate; nonProductionEquivalent must be false', 3);
   if (result.bridgeError) throw new SealwrapperError(`Bridge error: ${result.bridgeError}`, 3);

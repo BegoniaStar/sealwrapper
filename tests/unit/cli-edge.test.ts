@@ -105,8 +105,8 @@ test('lock update supports explicit dirty-mode writes and reports malformed lock
   const lines: string[] = [];
   await runCli(['lock', 'update', '--allow-dirty', '--target=1.6.0'], { cwd: root, write: (line) => lines.push(line) });
   const lock = JSON.parse(await readFile(join(root, 'seal.lock'), 'utf8')) as any;
-  assert.equal(lock.lockVersion, 2);
-  assert.equal(lock.registryVersion, 1);
+  assert.equal(lock.lockVersion, 3);
+  assert.equal(lock.registryVersion, 2);
   assert.deepEqual(lock.buildTargets, ['1.6.0']);
   assert.equal(lock.defaultTarget, '1.6.0');
   assert.deepEqual(Object.keys(lock.targets), ['1.6.0']);
@@ -116,10 +116,18 @@ test('lock update supports explicit dirty-mode writes and reports malformed lock
   await runCli(['lock', 'update', '--allow-dirty'], { cwd: root, write: (line) => lines.push(line) });
   assert.match(lines.join('\n'), /No lock contract changes/);
 
+  const legacyLock = JSON.parse(await readFile(join(root, 'seal.lock'), 'utf8')) as any;
+  legacyLock.lockVersion = 2;
+  await writeFile(join(root, 'seal.lock'), `${JSON.stringify(legacyLock, null, 2)}\n`);
+  lines.length = 0;
+  await runCli(['lock', 'update', '--allow-dirty'], { cwd: root, write: (line) => lines.push(line) });
+  assert.equal(JSON.parse(await readFile(join(root, 'seal.lock'), 'utf8')).lockVersion, 3);
+  assert.match(lines.join('\n'), /lockVersion: 2 -> 3/);
+
   await writeFile(join(root, 'seal.lock'), JSON.stringify({ lockVersion: 1, targets: {} }));
   await assert.rejects(
     () => runCli(['lock', 'update', '--allow-dirty'], { cwd: root, write: () => {} }),
-    /seal\.lock must use lockVersion: 2/,
+    /seal\.lock must use lockVersion: 2 or 3.*migration/,
   );
 
   const malformedRoot = await newWorkspace('sealwrapper-lock-malformed-', t);
@@ -167,4 +175,21 @@ test('doctor reports both unavailable Git and mismatched Go toolchains', async (
   finally {
     process.env.PATH = previousPath;
   }
+});
+
+test('CLI emits one stable JSON or JUnit envelope for machine-readable runs', async (t) => {
+  const root = await newWorkspace('sealwrapper-output-format-', t);
+  const jsonLines: string[] = [];
+  await runCli(['init', '--kind', 'resource', '--no-sync', root, '--format=json'], { cwd: projectRoot, write: (line) => jsonLines.push(line) });
+  const json = JSON.parse(jsonLines.join('\n')) as any;
+  assert.deepEqual(Object.keys(json).sort(), ['command', 'format', 'messages', 'ok']);
+  assert.equal(json.format, 'sealwrapper.cli/v1');
+  assert.equal(json.command, 'init');
+  assert.equal(json.ok, true);
+  assert.match(json.messages.join('\n'), /Created sealpack-only resource/);
+
+  const junitLines: string[] = [];
+  await runCli(['doctor', '--format', 'junit'], { cwd: root, write: (line) => junitLines.push(line) });
+  assert.match(junitLines.join('\n'), /^<testsuite name="sealwrapper" tests="1" failures="0"/);
+  assert.match(junitLines.join('\n'), /<testcase[^>]+name="doctor"/);
 });

@@ -104,14 +104,16 @@ should be treated as a release-gate update: add it to `buildTarget`, refresh
 its lock/core/type assets, and run `package` before claiming support for that
 host version.
 
-`seal.lock` v2 records the registry version, target set, default target, and a
-complete signed descriptor for every target. v2 is the only supported project
-and lock format; v1 files are rejected so the implementation has one clear
-validation path. Managed state is isolated at
+`seal.lock` v3 records the registry version, target set, default target, and a
+complete signed descriptor for every target. v3 is the only supported project
+and lock format; older files must be explicitly rewritten with
+`sealw lock update` so a trust-root or registry migration is reviewable rather
+than silently substituted. Managed state is isolated at
 `.seal/core/<target>/mirror.git`, `.seal/core/<target>/worktree`, and
 `.seal/core/<target>/state.json`, so two target checkouts cannot overwrite one
-another. After editing an old project to the v2 shape, remove its old lock and
-run `sealw lock update --allow-dirty` to write the current lock descriptor.
+another. A v2 lock can be migrated in place with
+`sealw lock update --allow-dirty`; the command reports the lock and registry
+version changes before writing the current descriptor.
 
 Maintainers add a target to the immutable `targetRegistry` in
 `src/pinned-target.ts`, then add the matching `api/sealdice/<target>/`,
@@ -122,6 +124,9 @@ after that sealwrapper release is available.
 Use `sealw --help` or `sealw scenario test --help` for generated command and
 parameter documentation. Unknown options and unsupported choice values fail
 before project or managed-core work begins.
+All commands except `package` also accept `--format text|json|junit`. Text is
+the default; JSON emits one `sealwrapper.cli/v1` envelope and JUnit emits one
+JUnit suite, so CI can consume every command through the same interface.
 
 For a checkout-wide verification, use the same pinned toolchain:
 
@@ -150,6 +155,9 @@ or edits a user-supplied core checkout or the template reference checkout.
 The source declares `1.5.1-dev`, while the locked official runtime is
 `1.6.0+20260726`; every bridge result reports both instead of concealing the
 mismatch.
+Before touching managed state, `core sync` and `doctor` probe Node, Git, and
+every Go version selected by the lock and report all missing or mismatched
+tools together.
 
 For JavaScript-bearing projects, `init` writes a normal `tsconfig.json` and a
 managed target declaration at `.seal/types/sealdice-<target>.d.ts`.
@@ -182,6 +190,15 @@ any referenced resource.
 When more than one target is selected, snapshots and rendered report names
 include the target ID (for example, `scenario.json.1.7.0.snapshot.json`) so
 transcripts from different host contracts cannot overwrite one another.
+
+Network permissions are opt-in: the generated manifest defaults to
+`network: false`. For a package that declares `network: true`, the test bridge
+uses a hermetic HTTP mock rather than the real Internet. A request must target
+one of the manifest's `networkHosts` and match a scenario-declared route,
+including method, URL, headers, and body; HTTPS CONNECT is also denied by this
+HTTP-only bridge. Otherwise it fails closed. Matched
+requests and fixed responses are recorded in the JSON transcript, so a passing
+scenario proves the fetch path without granting external network access.
 
 The lock contains an Ed25519-signed test-overlay descriptor and an explicit
 HTTPS mirror set. `core sync` will only use that signed set; an alternate

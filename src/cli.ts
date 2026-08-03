@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { watch as watchFs } from 'node:fs';
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -15,7 +15,7 @@ import { archiveSealpack } from './archive.ts';
 import { auditApiContract, updateApiContract } from './api-contract.ts';
 import { invokeBridge } from './bridge.ts';
 import { configuredDefaultTarget, configuredTargetIds, loadProjectConfig } from './config.ts';
-import { coreSync, coreVerify } from './core.ts';
+import { coreSync, coreVerify, diagnoseToolchain, toolchainError } from './core.ts';
 import { SealwrapperError } from './errors.ts';
 import { describeLockDiff, loadSealLock, lockedTarget, lockTargetIds, renderSealLock } from './lock.ts';
 import { defaultTargetId, getTarget, minimumTargetId, targetIds } from './pinned-target.ts';
@@ -28,8 +28,9 @@ import { toSarif } from './sarif.ts';
 import { stageSealpack } from './stage.ts';
 import { syncProjectTypes, typecheckProject, verifyProjectTypes } from './types.ts';
 import { createProgress, type ProgressReporter, withProgress } from './progress.ts';
+import { parseOutputFormat, renderOutput, type OutputFormat } from './output.ts';
 
-export type CliOptions = { cwd: string; write?: (line: string) => void; progress?: ProgressReporter };
+export type CliOptions = { cwd: string; write?: (line: string) => void; progress?: ProgressReporter; format?: OutputFormat };
 type InitKind = 'js' | 'resource' | 'hybrid';
 type InitOptions = { kind: InitKind; noSync: boolean; offline: boolean; targetId?: string };
 type ResourceCheckOptions = { sarif?: string };
@@ -58,11 +59,60 @@ function hasOption(argumentsList: string[], parameterLongName: string): boolean 
   return argumentsList.some((token) => token === parameterLongName || token.startsWith(`${parameterLongName}=`));
 }
 
+function extractOutputFormat(argumentsList: string[], configured?: OutputFormat): { format?: OutputFormat; argumentsList: string[] } {
+  let value: string | undefined = configured;
+  const remaining: string[] = [];
+  for (let index = 0; index < argumentsList.length; index += 1) {
+    const token = argumentsList[index];
+    if (token === '--format') {
+      const next = argumentsList[++index];
+      if (next === undefined || next.startsWith('-')) throw new SealwrapperError('--format requires text, json, or junit', 2);
+      if (value !== undefined && value !== next) throw new SealwrapperError('--format must not be specified more than once', 2);
+      value = next;
+      continue;
+    }
+    if (token.startsWith('--format=')) {
+      const next = token.slice('--format='.length);
+      if (!next) throw new SealwrapperError('--format requires text, json, or junit', 2);
+      if (value !== undefined && value !== next) throw new SealwrapperError('--format must not be specified more than once', 2);
+      value = next;
+      continue;
+    }
+    remaining.push(token);
+  }
+  try { return { format: parseOutputFormat(value), argumentsList: remaining }; }
+  catch (error) { throw new SealwrapperError((error as Error).message, 2); }
+}
+
 function packageFileName(staged: any) {
   return `${staged.packageId.split('/')[1]}@${staged.version}.sealpack`;
 }
 
 async function exists(path: string) { try { await access(path); return true; } catch { return false; } }
+
+function isWithin(root: string, candidate: string): boolean {
+  const child = relative(root, candidate);
+  return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+}
+
+/** Scenario packages are external bridge inputs, so they must be regular
+ * project files rather than a symlink that can redirect the bridge elsewhere. */
+async function resolveScenarioArchive(projectRoot: string, item: string): Promise<string> {
+  const archive = resolve(projectRoot, item);
+  if (!isWithin(projectRoot, archive)) throw new SealwrapperError(`Scenario package escapes project root: ${item}`, 2);
+  let stat;
+  try {
+    stat = await lstat(archive);
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') throw new SealwrapperError(`Scenario package does not exist: ${item}`, 2);
+    throw new SealwrapperError(`Unable to inspect scenario package ${item}: ${error?.message ?? error}`, 3);
+  }
+  if (stat.isSymbolicLink()) throw new SealwrapperError(`Scenario package must not be a symbolic link: ${item}`, 2);
+  if (!stat.isFile()) throw new SealwrapperError(`Scenario package must be a regular file: ${item}`, 2);
+  const resolved = await realpath(archive).catch((error: any) => { throw new SealwrapperError(`Unable to resolve scenario package ${item}: ${error?.message ?? error}`, 3); });
+  if (!isWithin(projectRoot, resolved)) throw new SealwrapperError(`Scenario package resolves outside project root: ${item}`, 2);
+  return resolved;
+}
 
 function defaultConfig(kind: string, selectedTarget = defaultTargetId) {
   const scripts = kind === 'js' || kind === 'hybrid';
@@ -210,6 +260,24 @@ async function scenarioFiles(projectRoot: string): Promise<string[]> {
   return files;
 }
 
+type PreparedScenario = { file: string; scenario: any; archives: string[] };
+
+async function prepareScenarios(projectRoot: string, files: readonly string[], releaseOnly: boolean): Promise<PreparedScenario[]> {
+  const root = await realpath(projectRoot).catch((error: any) => { throw new SealwrapperError(`Project root cannot be resolved: ${projectRoot}${error?.message ? ` (${error.message})` : ''}`, 3); });
+  const prepared: PreparedScenario[] = [];
+  for (const file of files) {
+    const scenario = normalizeScenario(JSON.parse(await readFile(file, 'utf8')));
+    if (releaseOnly && !scenario.release) continue;
+    const archives = await Promise.all((scenario.packages ?? []).map((item: string) => resolveScenarioArchive(root, item)));
+    prepared.push({ file, scenario, archives });
+  }
+  if (prepared.length === 0) {
+    if (releaseOnly) throw new SealwrapperError('No release-marked scenario files found', 2);
+    throw new SealwrapperError('No scenario files were executed', 2);
+  }
+  return prepared;
+}
+
 async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOptions: ScenarioOptions) {
   const { targetId, render, png, identity, theme, style, showMembers, snapshot: compareSnapshots, updateSnapshots, release: releaseOnly, offline, refreshIdentities } = scenarioOptions;
   if (png && !render) throw new SealwrapperError('--png requires --render', 2);
@@ -218,21 +286,12 @@ async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOp
   const files = await scenarioFiles(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const selectedTargets = targetId ? [targetId] : configuredTargetIds(config);
+  const scenarios = await prepareScenarios(projectRoot, files, releaseOnly);
   const prepared = await stageArchive(projectRoot);
-  let executed = 0;
   for (const selectedTargetId of selectedTargets) {
     const checked = await resourceCheck(projectRoot, options, {}, selectedTargetId, prepared);
-    for (const file of files) {
+    for (const { file, scenario, archives } of scenarios) {
       options.progress?.update(`Running scenario ${basename(file)} (${selectedTargetId})`);
-      const scenario = normalizeScenario(JSON.parse(await readFile(file, 'utf8')));
-      if (releaseOnly && !scenario.release) continue;
-      executed += 1;
-      const archives = (scenario.packages ?? []).map((item: string) => {
-        const archive = resolve(projectRoot, item);
-        if (!archive.startsWith(`${resolve(projectRoot)}/`)) throw new SealwrapperError(`Scenario package escapes project root: ${item}`, 2);
-        return archive;
-      });
-      for (const archive of archives) if (!(await exists(archive))) throw new SealwrapperError(`Scenario package does not exist: ${archive}`, 2);
       const result = await invokeBridge({ worktree: checked.verified.worktree, target: checked.target, operation: 'scenario', archive: checked.archive, archives, scenario });
       const expectsDiagnostics = scenario.expect?.diagnostics !== undefined;
       if (!result.ok && !expectsDiagnostics) {
@@ -262,10 +321,6 @@ async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOp
         output(options, `Report: ${report.json}, ${report.svg}, ${report.html}${report.png ? `, ${report.png}` : ''}`);
       }
     }
-  }
-  if (executed === 0) {
-    if (releaseOnly) throw new SealwrapperError('No release-marked scenario files found', 2);
-    throw new SealwrapperError('No scenario files were executed', 2);
   }
 }
 
@@ -319,7 +374,7 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
     await writeFile(checksum, `${digest}  ${artifactName}\n`, { mode: 0o644 });
     // Rendering validates a supplied private key before release/ is touched.
     await writeFile(provenance, await renderReleaseProvenance({ projectRoot, artifact, config: prepared.config, targets: checkedTargets.map((checked) => checked.target), signingKeyPath, signingKeyId: signKeyId ?? undefined }), { mode: 0o644 });
-    const published = await publishReleaseFiles({ releaseDirectory: release, files: [
+    const published = await publishReleaseFiles({ projectRoot, releaseDirectory: release, files: [
       { source: artifact, name: artifactName },
       { source: checksum, name: `${artifactName}.sha256` },
       { source: provenance, name: `${artifactName}.release.json` },
@@ -333,14 +388,11 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
 
 async function doctor(projectRoot: string, options: CliOptions, targetId?: string) {
   const lock = await loadSealLock(projectRoot, toolRoot);
-  let git = '';
-  try { git = (await execFileAsync('git', ['--version'])).stdout.trim(); } catch { throw new SealwrapperError('Git is required by seal.lock to prepare the managed core mirror', 2); }
-  let go = '';
-  try { go = (await execFileAsync('go', ['version'])).stdout.trim(); } catch { /* rendered below as unavailable */ }
   const selected = targetId ? [targetId] : lockTargetIds(lock);
   const expected = [...new Set(selected.map((id) => lockedTarget(lock, id).testOverlay.goVersion))];
-  for (const version of expected) if (!go.includes(`go${version} `)) throw new SealwrapperError(`Go ${version} required by seal.lock; found ${go || 'unavailable'}`, 2);
-  output(options, `Node ${process.versions.node}; Git ${git}; Go ${go}; targets ${selected.join(', ')}`);
+  const toolchain = await diagnoseToolchain(expected);
+  if (!toolchain.ok) throw toolchainError(toolchain.diagnostics);
+  output(options, `Node ${toolchain.node}; Git ${toolchain.git}; Go ${toolchain.go}; targets ${selected.join(', ')}`);
 }
 
 type ActionHandler = () => Promise<unknown>;
@@ -574,8 +626,9 @@ async function updateLock(projectRoot: string, options: CliOptions, allowDirty: 
   try { existing = JSON.parse(await readFile(lockPath, 'utf8')); } catch (error: any) {
     if (error?.code !== 'ENOENT') throw new SealwrapperError(`seal.lock is not valid JSON: ${error.message}`, 2);
   }
-  if (existing && typeof existing === 'object' && !Array.isArray(existing) && 'lockVersion' in existing && (existing as { lockVersion?: unknown }).lockVersion !== 2) {
-    throw new SealwrapperError('seal.lock must use lockVersion: 2', 2);
+  if (existing && typeof existing === 'object' && !Array.isArray(existing) && 'lockVersion' in existing) {
+    const lockVersion = (existing as { lockVersion?: unknown }).lockVersion;
+    if (lockVersion !== 2 && lockVersion !== 3) throw new SealwrapperError('seal.lock must use lockVersion: 2 or 3; run lock update for migration', 2);
   }
   let configuredTargets = [defaultTargetId];
   let configuredDefault = defaultTargetId;
@@ -705,7 +758,7 @@ function createCommandLine(options: CliOptions): CommandLineParser {
   const parser = new CommandLineParser({
     toolFilename: 'sealwrapper|sealw',
     toolDescription: 'Sealpack-only SealDice extension development tools with a registry-backed target matrix.',
-    toolEpilog: 'For detailed help about a specific command, use: sealw <command> -h',
+    toolEpilog: 'For detailed help about a specific command, use: sealw <command> -h. Machine output: --format text|json|junit.',
   });
   parser.addAction(makeInitAction(options));
   parser.addAction(makeDoctorAction(options));
@@ -783,30 +836,60 @@ async function executeCommandLine(parser: CommandLineParser, argumentsList: stri
 
 export async function runCli(argumentsList: string[], options: CliOptions) {
   if (hasOption(argumentsList, '--core')) throw new SealwrapperError('sealwrapper never uses a user-supplied core checkout; use the lock-managed core sync', 2);
+  const rawSelectedAction = normalizeArguments(argumentsList).find((token) => actionNames.has(token));
+  if (hasOption(argumentsList, '--format') && rawSelectedAction === 'package') throw new SealwrapperError('sealwrapper is sealpack-only; package has no --format option', 2);
 
+  const extracted = extractOutputFormat(argumentsList, options.format);
+  const format = extracted.format;
+  argumentsList = extracted.argumentsList;
   const runtimeOptions: CliOptions = {
     ...options,
-    progress: options.progress ?? createProgress({ captured: Boolean(options.write) }),
+    format,
+    progress: options.progress ?? createProgress({ captured: Boolean(options.write) || format !== undefined }),
   };
   const parser = createCommandLine(runtimeOptions);
   const normalized = normalizeArguments(argumentsList);
   const selectedAction = normalized.find((token) => actionNames.has(token));
-  if (hasOption(normalized, '--format') && selectedAction === 'package') throw new SealwrapperError('sealwrapper is sealpack-only; package has no --format option', 2);
+  if (format !== undefined && selectedAction === 'package') throw new SealwrapperError('sealwrapper is sealpack-only; package has no --format option', 2);
+  const machine = format === 'json' || format === 'junit';
+  const messages: string[] = [];
+  if (machine) runtimeOptions.write = (line) => { messages.push(line); };
+  const emitMachine = (ok: boolean, error?: unknown) => {
+    if (!machine) return;
+    const detail = error instanceof SealwrapperError ? { message: error.message, exitCode: error.exitCode } : error instanceof Error ? { message: error.message } : error === undefined ? undefined : { message: String(error) };
+    const rendered = renderOutput(format, selectedAction ?? 'help', ok, messages, detail);
+    if (options.write) options.write(rendered.trimEnd());
+    else process.stdout.write(rendered);
+  };
   if (normalized.length === 0) {
-    printHelp(runtimeOptions, parser);
+    if (machine) messages.push(stripAnsi(parser.renderHelpText()).trimEnd());
+    else printHelp(runtimeOptions, parser);
+    emitMachine(true);
     return;
   }
   const helpRequested = normalized.includes('--help') || normalized.includes('-h');
   if (helpRequested) {
     const actionName = normalized.find((token) => actionNames.has(token));
-    printHelp(runtimeOptions, parser, actionName);
+    if (machine) messages.push(stripAnsi((actionName ? parser.tryGetAction(actionName)?.renderHelpText() : undefined) ?? parser.renderHelpText()).trimEnd());
+    else printHelp(runtimeOptions, parser, actionName);
+    emitMachine(true);
     return;
   }
-  return executeCommandLine(parser, normalized, runtimeOptions);
+  try {
+    const result = await executeCommandLine(parser, normalized, runtimeOptions);
+    emitMachine(true);
+    return result;
+  }
+  catch (error) {
+    emitMachine(false, error);
+    throw error;
+  }
 }
 
 if (import.meta.main) {
+  const machineRequested = process.argv.some((token, index, args) => (token === '--format' && (args[index + 1] === 'json' || args[index + 1] === 'junit')) || token === '--format=json' || token === '--format=junit');
   runCli(process.argv.slice(2), { cwd: process.cwd() }).catch((error) => {
+    if (machineRequested) { process.exitCode = error instanceof SealwrapperError ? error.exitCode : 3; return; }
     const detail = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${detail}\n`);
     process.exitCode = error instanceof SealwrapperError ? error.exitCode : 3;
