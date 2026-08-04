@@ -20,6 +20,11 @@ sealw scenario test --release --snapshot
 项目没有 `build`，因此无需 `typecheck`；含 JavaScript 的项目必须有 `src/` 和至少一个
 `tests/unit/*.test.{ts,js}` 文件。
 
+`core sync` 还会下载并校验目标描述符所钉定的上游 Linux amd64 release artifact SHA-256，
+`core verify` 会再次校验缓存字节。桥接门禁本身在同一提交的受管源码和 test-only overlay
+上运行，因此它证明的是锁定的 source-core compatibility，而不是把未执行的二进制误称为
+运行时 smoke。
+
 ## 发布命令
 
 ```sh
@@ -43,12 +48,13 @@ sealw scenario test --target 1.6.0 --release --snapshot
 
 1. 对 JavaScript 项目同步类型并运行 TypeScript 检查。
 2. 检查源码格式、用锁定 esbuild 解析源文件，并运行项目单元测试。
-3. 对每个目标运行全部标记为 `"release": true` 的场景，并比较其已提交快照。
-4. 构建受所有目标能力上限约束的 staging archive，检查资源和 manifest。
-5. 用真实受管核心运行 Install -> Enable -> Reload。
-6. 检查 `release.artifactPolicy` 的禁止路径与扩展名。
-7. 生成确定性 archive、SHA-256 checksum 和发布溯源文件。
-8. 在所有输出都准备好后，原子地发布完整文件集。
+3. 从同一输入独立构建两次，要求完整矩阵的 archive 字节完全相同。
+4. 对每个目标运行全部标记为 `"release": true` 的场景，并比较其已提交快照。
+5. 构建受所有目标能力上限约束的 staging archive，检查资源和 manifest。
+6. 用锁定 source-core compatibility 运行 Install -> Enable -> Reload。
+7. 检查 `release.artifactPolicy` 的禁止路径与扩展名。
+8. 生成确定性 archive、SHA-256 checksum 和发布溯源文件。
+9. 在所有输出都准备好后，原子地发布完整文件集。
 
 任何步骤失败都不会在 `release/` 中留下新的半成品。已有同名发布文件也不会被覆盖；递增
 `package.version` 后重新发布。
@@ -76,6 +82,12 @@ SOURCE_DATE_EPOCH=1767225600 sealw package
 
 未设置时，溯源文件使用固定的 `1980-01-01T00:00:00.000Z`，以避免当前时间破坏可复现性。
 
+无需发布即可运行相同的双构建检查：
+
+```sh
+sealw repro verify
+```
+
 ## 可选 Ed25519 签名
 
 `--sign-key` 读取项目目录内的 Ed25519 私钥，并只签名发布溯源文件：
@@ -93,6 +105,19 @@ sealw package \
 - 项目默认 `.gitignore` 忽略 `keys/`；不要提交私钥。
 
 先在非生产版本上验证密钥格式。密钥无法解析时，失败发生在 `release/` 被触及之前。
+
+## 下载验证
+
+下载方必须将 provenance 中的公钥视为声明，而不是信任根。使用组织已分发的公钥和可选的
+`seal.lock` 重新验证 archive、canonical Ed25519 签名与锁绑定：
+
+```sh
+sealw release verify release/city-prompts@1.0.0.sealpack \
+  --provenance release/city-prompts@1.0.0.sealpack.release.json \
+  --trusted-key org-release-public.pem \
+  --trusted-key-id maintainer-2026 \
+  --lock seal.lock
+```
 
 ## CI 的最小模式
 
