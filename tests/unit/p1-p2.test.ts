@@ -231,6 +231,9 @@ test('P2 release provenance binds an archive to core and test-only overlay lock 
   assert.deepEqual(parsed.lock.buildTargets, ['1.6.0']);
   assert.equal(parsed.core.commit, pinnedTarget.core.commit);
   assert.equal(parsed.overlay.nonProductionEquivalent, false);
+  assert.equal(parsed.verification.kind, 'source-core compatibility');
+  assert.deepEqual(parsed.verification.verifiedTargets.map((item: { id: string }) => item.id), ['1.6.0']);
+  assert.equal(parsed.inputs.sealLockSha256, parsed.lock.sha256);
 });
 
 test('release provenance refuses a missing or mismatched lock descriptor', async () => {

@@ -73,6 +73,14 @@ function releaseTimestamp() {
 }
 
 type LockBinding = { digest: string; lockVersion: number; registryVersion: number; buildTargets: string[]; defaultTarget: string };
+export type ReleaseGateSummary = {
+  typecheckTargets: string[];
+  quality: true;
+  reproducibility: true;
+  releaseScenarioSnapshots: { releaseOnly: true; targets: string[] };
+  resourceChecks: string[];
+  smoke: string[];
+};
 
 function targetId(target: TargetDescriptor): string {
   return target.id || target.core.version;
@@ -126,6 +134,27 @@ async function lockBinding(projectRoot: string, targets: readonly TargetDescript
     defaultTarget: lock.defaultTarget,
   };
 }
+async function optionalDigest(path: string): Promise<string | null> {
+  try { return `sha256:${createHash('sha256').update(await readFile(path)).digest('hex')}`; }
+  catch (error: any) { if (error?.code === 'ENOENT') return null; throw error; }
+}
+
+async function releaseInputs(projectRoot: string, targets: readonly TargetDescriptor[]) {
+  let packageMetadata: { version?: unknown; dependencies?: Record<string, unknown> } = {};
+  try { packageMetadata = JSON.parse(await readFile(join(toolRoot, 'package.json'), 'utf8')); }
+  catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+  return {
+    sealConfigSha256: await optionalDigest(join(projectRoot, 'seal.config.json')),
+    packageLockSha256: await optionalDigest(join(projectRoot, 'package-lock.json')),
+    toolchain: {
+      sealwrapper: typeof packageMetadata.version === 'string' ? packageMetadata.version : null,
+      node: process.versions.node,
+      esbuild: typeof packageMetadata.dependencies?.esbuild === 'string' ? packageMetadata.dependencies.esbuild : null,
+      go: [...new Set(targets.map((target) => target.testOverlay.goVersion))].sort(),
+    },
+  };
+}
+
 
 async function releaseSignature(manifest: any, signingKeyPath?: string, signingKeyId?: string) {
   if (!signingKeyPath) return undefined;
@@ -192,10 +221,11 @@ export async function verifyReleaseBundle({ artifact, provenance, trustedKeyPath
  * deliberately parses the private key here: a malformed signing key cannot
  * leave a newly-created archive or checksum behind.
  */
-export async function renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string }): Promise<Buffer> {
+export async function renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string; gates?: ReleaseGateSummary }): Promise<Buffer> {
   const selectedTargets = normalizeTargets({ target, targets });
   const lock = await lockBinding(projectRoot, selectedTargets);
   const archive = await readFile(artifact);
+  const inputs = await releaseInputs(projectRoot, selectedTargets);
   const selectedIds = selectedTargets.map(targetId);
   const configuredDefault = config.sealDice?.defaultTarget;
   const matrixDefault = typeof configuredDefault === 'string' && selectedIds.includes(configuredDefault) ? configuredDefault : selectedIds[0];
@@ -217,6 +247,12 @@ export async function renderReleaseProvenance({ projectRoot, artifact, config, t
       defaultTarget: matrixDefault,
     },
     lock: { sha256: lock.digest, lockVersion: lock.lockVersion, registryVersion: lock.registryVersion, buildTargets: lock.buildTargets, defaultTarget: lock.defaultTarget },
+    inputs: { ...inputs, sealLockSha256: lock.digest },
+    verification: {
+      kind: 'source-core compatibility',
+      verifiedTargets: targetRecords.map((item) => ({ id: item.id, commit: item.core.commit, runtimeVersion: item.core.runtimeVersion, bridgeProtocol: item.overlay.protocol, releaseArtifactSha256: item.core.releaseArtifactSha256 })),
+    },
+    ...(gates ? { gates } : {}),
   };
   if (selectedTargets.length === 1) {
     manifest.target = targetId(primary);
@@ -277,8 +313,8 @@ export async function publishReleaseFiles({ projectRoot, releaseDirectory, files
   }
 }
 
-export async function writeReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string }) {
-  const data = await renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId });
+export async function writeReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string; gates?: ReleaseGateSummary }) {
+  const data = await renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates });
   const path = join(dirname(artifact), `${basename(artifact)}.release.json`);
   const temporary = `${path}.tmp-${process.pid}`;
   await writeFile(temporary, data, { mode: 0o644 });

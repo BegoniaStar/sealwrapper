@@ -461,7 +461,22 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
     const digest = createHash('sha256').update(await readFile(artifact)).digest('hex');
     await writeSafeProjectFile(projectRoot, checksum, `${digest}  ${artifactName}\n`, { mode: 0o644, label: 'Release checksum' });
     // Rendering validates a supplied private key before release/ is touched.
-    await writeSafeProjectFile(projectRoot, provenance, await renderReleaseProvenance({ projectRoot, artifact, config: prepared.config, targets: checkedTargets.map((checked) => checked.target), signingKeyPath, signingKeyId: signKeyId ?? undefined }), { mode: 0o644, label: 'Release provenance' });
+    await writeSafeProjectFile(projectRoot, provenance, await renderReleaseProvenance({
+      projectRoot,
+      artifact,
+      config: prepared.config,
+      targets: checkedTargets.map((checked) => checked.target),
+      signingKeyPath,
+      signingKeyId: signKeyId ?? undefined,
+      gates: {
+        typecheckTargets: projectConfig.build ? selectedTargets : [],
+        quality: true,
+        reproducibility: true,
+        releaseScenarioSnapshots: { releaseOnly: true, targets: selectedTargets },
+        resourceChecks: checkedTargets.map((checked) => checked.targetId),
+        smoke: checkedTargets.map((checked) => checked.targetId),
+      },
+    }), { mode: 0o644, label: 'Release provenance' });
     const published = await publishReleaseFiles({ projectRoot, releaseDirectory: release, files: [
       { source: artifact, name: artifactName },
       { source: checksum, name: `${artifactName}.sha256` },
