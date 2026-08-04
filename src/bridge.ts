@@ -32,7 +32,7 @@ export async function invokeBridge({ worktree, target, operation, archive = '', 
   const request = { protocol: target.testOverlay.protocol, operation, archive, archives, runtimeVersion: target.core.runtimeVersion, baseCommit: target.core.commit, overlayDigest: target.testOverlay.digest, scenario };
   try {
     await writeFile(requestPath, `${JSON.stringify(request)}\n`, { mode: 0o600 });
-    const processResult = await runProcess('go', ['test', './dice', '-run', '^TestSealwrapperBridge$', '-count=1', '-timeout', '90s'], { cwd: worktree, timeoutMs, maxOutputBytes: 8 * 1024 * 1024, env: { SEALWRAPPER_TEST_REQUEST: requestPath, SEALWRAPPER_TEST_RESULT: resultPath } });
+    const processResult = await runProcess('go', ['test', './dice', '-run', '^TestSealwrapperBridge$', '-count=1', '-timeout', `${timeoutMs}ms`], { cwd: worktree, timeoutMs, maxOutputBytes: 8 * 1024 * 1024, env: { SEALWRAPPER_TEST_REQUEST: requestPath, SEALWRAPPER_TEST_RESULT: resultPath } });
     if (processResult.timedOut) throw new SealwrapperError(`Bridge process timed out after ${timeoutMs}ms`, 3);
     if (processResult.outputExceeded) throw new SealwrapperError('Bridge process exceeded the 8 MiB output limit', 3);
     let resultStat;

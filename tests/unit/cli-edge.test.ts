@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { runCli } from '../../src/cli.ts';
+import { renderOutput } from '../../src/output.ts';
 
 const projectRoot = process.cwd();
 
@@ -192,4 +193,19 @@ test('CLI emits one stable JSON or JUnit envelope for machine-readable runs', as
   await runCli(['doctor', '--format', 'junit'], { cwd: root, write: (line) => junitLines.push(line) });
   assert.match(junitLines.join('\n'), /^<testsuite name="sealwrapper" tests="1" failures="0"/);
   assert.match(junitLines.join('\n'), /<testcase[^>]+name="doctor"/);
+});
+
+test('machine output preserves target and scenario test case boundaries', () => {
+  const cases = [
+    { classname: 'sealwrapper.scenario.1.6.0', name: 'smoke.json', durationMilliseconds: 15, output: 'Scenario: Smoke' },
+    { classname: 'sealwrapper.scenario.1.6.0', name: 'network.json', durationMilliseconds: 25, failure: 'network expectation failed' },
+  ];
+  const junit = renderOutput('junit', 'scenario:test', false, ['Scenario passed: smoke.json (1.6.0)'], { message: 'network expectation failed', exitCode: 1 }, cases);
+  assert.match(junit, /tests="2" failures="1"/);
+  assert.match(junit, /classname="sealwrapper\.scenario\.1\.6\.0" name="smoke\.json" time="0\.015"/);
+  assert.match(junit, /name="network\.json" time="0\.025"><failure message="network expectation failed"/);
+  assert.doesNotMatch(junit, /classname="sealwrapper" name="scenario:test"/);
+
+  const json = JSON.parse(renderOutput('json', 'scenario:test', false, [], { message: 'network expectation failed', exitCode: 1 }, cases));
+  assert.deepEqual(json.tests, cases);
 });

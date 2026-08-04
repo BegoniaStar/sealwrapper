@@ -111,6 +111,7 @@ test('scenario output expectations can assert a safe dynamic text pattern', () =
 test('P2 scenario declarations preserve deterministic clock, seed, users, variables, and diagnostic expectations', () => {
   const scenario = normalizeScenario({
     title: 'advanced',
+    tags: ['release', 'smoke'],
     clock: '2026-08-01T00:00:00Z',
     seed: 42,
     users: { '10001': { nickname: '甲', role: 'admin', variables: { hp: 10 } } },
@@ -120,12 +121,14 @@ test('P2 scenario declarations preserve deterministic clock, seed, users, variab
   });
   assert.equal(scenario.clock, '2026-08-01T00:00:00.000Z');
   assert.equal(scenario.seed, 42);
+  assert.deepEqual(scenario.tags, ['release', 'smoke']);
   assert.deepEqual(scenario.messages[0].user, { nickname: '甲', role: 'admin', variables: { hp: 10 } });
   assert.equal(matchTranscriptExpectation({ messages: [] }, scenario.expect, [{ ruleId: 'reply.disabled', severity: 'warning' }]), null);
   assert.match(matchTranscriptExpectation({ messages: [] }, scenario.expect, []) ?? '', /diagnostics/);
   assert.throws(() => normalizeScenario({ messages: [], variables: { hp: { nested: true } } }), /string, number, or boolean/);
   assert.throws(() => normalizeScenario({ clock: 'tomorrow', messages: [] }), /ISO-8601/);
   assert.throws(() => normalizeScenario({ messages: [{ sequence: '1', text: 'hello' }] }), /sequence/);
+  assert.throws(() => normalizeScenario({ messages: [], tags: ['Release'] }), /scenario\.tags/);
   assert.throws(() => normalizeScenario({ messages: [], unknown: true }), /scenario\.unknown/);
   assert.throws(() => normalizeScenario({ conversation: { kind: 'channel' }, messages: [] }), /conversation\.kind/);
   assert.throws(() => normalizeScenario({ messages: [{ text: 'hello', direction: 'out' }] }), /direction.*unsupported/);

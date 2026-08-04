@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -54,6 +54,23 @@ test('bridge subprocess timeout terminates a hung runner', async () => {
   process.env.PATH = `${root}:${previousPath ?? ''}`;
   try {
     await assert.rejects(() => invokeBridge({ worktree: root, target: pinnedTarget, operation: 'capabilities', timeoutMs: 50 }), /timed out/i);
+  } finally {
+    process.env.PATH = previousPath;
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('bridge forwards its timeout to the Go test runner', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sealwrapper-bridge-timeout-args-'));
+  const fakeGo = join(root, 'go');
+  const argumentsPath = join(root, 'arguments.txt');
+  await writeFile(fakeGo, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argumentsPath}'\nexit 1\n`, { mode: 0o700 });
+  await chmod(fakeGo, 0o700);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${root}:${previousPath ?? ''}`;
+  try {
+    await assert.rejects(() => invokeBridge({ worktree: root, target: pinnedTarget, operation: 'capabilities', timeoutMs: 12_345 }), /Bridge result/);
+    assert.match(await readFile(argumentsPath, 'utf8'), /-timeout\n12345ms/);
   } finally {
     process.env.PATH = previousPath;
     await rm(root, { force: true, recursive: true });

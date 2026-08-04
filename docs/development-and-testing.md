@@ -150,7 +150,8 @@ sealw scenario test --format junit
 ```
 
 `text` 是默认格式。`json` 生成一个 `sealwrapper.cli/v1` envelope，`junit` 生成一个
-JUnit testsuite。动画进度仅在交互式 TTY 使用 stderr；CI、管道、注入 writer 或机器输出时
+JUnit testsuite。场景命令会在两种机器格式中分别记录每个 `目标 × 场景` 的名称、耗时和失败，
+便于 CI 直接定位。动画进度仅在交互式 TTY 使用 stderr；CI、管道、注入 writer 或机器输出时
 会自动静默，不会污染 stdout。
 
 ## 建议的提交前顺序

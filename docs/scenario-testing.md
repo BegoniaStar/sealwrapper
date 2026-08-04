@@ -49,12 +49,28 @@ sealw scenario test
 `title` 只用于识别场景。`release: true` 表示它会被
 `sealw scenario test --release` 纳入发布门禁。未设置时默认为 `false`。
 
+## 选择与超时
+
+本地调试和 CI 可以精确选择所需场景，不必运行整个目录：
+
+```sh
+sealw scenario test --filter permission
+sealw scenario test --tag release --tag network
+sealw scenario test --timeout-ms 180000
+```
+
+`--filter` 是文件名或 `title` 的字面子串匹配。`--tag` 可以重复，所有给出的标签都必须存在；
+标签在场景顶层的 `tags` 数组中声明，使用最多 64 个字符的小写字母、数字、`.`、`_`、`-`，且
+不得重复。`--timeout-ms` 为每次 bridge 调用设置上限，范围为 1--300000，默认 120000；带
+`repeatable: true` 的随机断言会单独进行第二次、同样受限的调用。
+
 ## 顶层字段
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `release` | 布尔值 | 是否属于发布场景。默认 `false`。 |
 | `title` | 字符串 | 人类可读标题。 |
+| `tags` | 小写标签数组 | 可用 `--tag` 选择；未设置时为空数组。 |
 | `clock` | ISO-8601 时间 | 固定场景时钟；默认 `1970-01-01T00:00:00.000Z`。 |
 | `seed` | 非负 31 位整数 | 固定随机序列；默认 `0`。 |
 | `messages` | 数组，必填 | 依序注入的 fake-QQ 输入。 |

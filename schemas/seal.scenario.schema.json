@@ -10,6 +10,11 @@
     "$schema": { "type": "string", "format": "uri-reference" },
     "release": { "type": "boolean" },
     "title": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" }
+    },
     "conversation": { "$ref": "#/$defs/conversation" },
     "clock": { "type": "string", "format": "date-time" },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },

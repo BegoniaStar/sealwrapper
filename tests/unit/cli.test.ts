@@ -111,6 +111,8 @@ test('P2 CLI rejects invalid report controls before it accesses a managed core',
   await assert.rejects(() => runCli(['scenario', 'test', '--theme', 'neon'], { cwd: process.cwd(), write: () => {} }), /--theme/);
   await assert.rejects(() => runCli(['scenario', 'test', '--snapshot', '--update-snapshots'], { cwd: process.cwd(), write: () => {} }), /cannot be combined/);
   await assert.rejects(() => runCli(['scenario', 'test', '--png'], { cwd: process.cwd(), write: () => {} }), /--png requires --render/);
+  await assert.rejects(() => runCli(['scenario', 'test', '--tag', 'Release'], { cwd: process.cwd(), write: () => {} }), /--tag/);
+  await assert.rejects(() => runCli(['scenario', 'test', '--timeout-ms', '0'], { cwd: process.cwd(), write: () => {} }), /--timeout-ms/);
 });
 
 test('repro verify builds the complete configured matrix twice without core access', async () => {
@@ -125,6 +127,21 @@ test('scenario test fails before core access when its scenario directory is empt
   await assert.rejects(
     () => runCli(['scenario', 'test'], { cwd: destination, write: () => {} }),
     /No scenario files found under tests\/scenarios/,
+  );
+});
+
+test('scenario filter and tags reject an empty selection before core access', async () => {
+  const destination = join(tmpdir(), `sealwrapper-scenario-selection-${Date.now()}`);
+  await runCli(['init', destination, '--kind', 'resource', '--no-sync'], { cwd: process.cwd(), write: () => {} });
+  await mkdir(join(destination, 'tests', 'scenarios'), { recursive: true });
+  await writeFile(join(destination, 'tests', 'scenarios', 'smoke.json'), `${JSON.stringify({ title: 'Smoke', tags: ['smoke'], messages: [] })}\n`);
+  await assert.rejects(
+    () => runCli(['scenario', 'test', '--filter', 'network'], { cwd: destination, write: () => {} }),
+    /No scenario files match the requested selection/,
+  );
+  await assert.rejects(
+    () => runCli(['scenario', 'test', '--tag', 'network'], { cwd: destination, write: () => {} }),
+    /No scenario files match the requested selection/,
   );
 });
 

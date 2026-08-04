@@ -28,10 +28,10 @@ import { toSarif } from './sarif.ts';
 import { stageSealpack } from './stage.ts';
 import { syncProjectTypes, typecheckProject, verifyProjectTypes } from './types.ts';
 import { createProgress, type ProgressReporter, withProgress } from './progress.ts';
-import { parseOutputFormat, renderOutput, type OutputFormat } from './output.ts';
+import { parseOutputFormat, renderOutput, type OutputFormat, type OutputTestCase } from './output.ts';
 import { assertSafeProjectFile, createSafeProjectTempDirectory, ensureSafeProjectDirectory, writeSafeProjectFile } from './safe-path.ts';
 
-export type CliOptions = { cwd: string; write?: (line: string) => void; progress?: ProgressReporter; format?: OutputFormat };
+export type CliOptions = { cwd: string; write?: (line: string) => void; progress?: ProgressReporter; format?: OutputFormat; testResults?: OutputTestCase[] };
 type InitKind = 'js' | 'resource' | 'hybrid';
 type InitOptions = { kind: InitKind; noSync: boolean; offline: boolean; targetId?: string };
 type ResourceCheckOptions = { sarif?: string };
@@ -48,14 +48,22 @@ type ScenarioOptions = {
   release: boolean;
   offline: boolean;
   refreshIdentities: boolean;
+  filter?: string;
+  tags: readonly string[];
+  timeoutMs: number;
 };
 type WatchOptions = { once: boolean; targetId?: string };
 type PackageOptions = { signKey?: string; signKeyId?: string };
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const execFileAsync = promisify(execFile);
 const projectConfigSchema = 'https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.config.schema.json';
+const scenarioTagPattern = /^[a-z0-9](?:[a-z0-9._-]{0,63})$/u;
 
 function output(options: CliOptions, line: string) { (options.write ?? ((value) => process.stdout.write(`${value}\n`)))(line); }
+
+function recordTestResult(options: CliOptions, testCase: OutputTestCase) {
+  options.testResults?.push(testCase);
+}
 
 function hasOption(argumentsList: string[], parameterLongName: string): boolean {
   return argumentsList.some((token) => token === parameterLongName || token.startsWith(`${parameterLongName}=`));
@@ -335,65 +343,86 @@ async function scenarioFiles(projectRoot: string): Promise<string[]> {
 }
 
 type PreparedScenario = { file: string; scenario: any; archives: string[] };
+type ScenarioSelection = { releaseOnly: boolean; filter?: string; tags: readonly string[] };
 
-async function prepareScenarios(projectRoot: string, files: readonly string[], releaseOnly: boolean): Promise<PreparedScenario[]> {
+function selectedScenario(file: string, scenario: any, selection: ScenarioSelection): boolean {
+  if (selection.releaseOnly && !scenario.release) return false;
+  const label = `${basename(file)} ${scenario.title ?? ''}`;
+  if (selection.filter && !label.includes(selection.filter)) return false;
+  return selection.tags.every((tag) => scenario.tags.includes(tag));
+}
+
+async function prepareScenarios(projectRoot: string, files: readonly string[], selection: ScenarioSelection): Promise<PreparedScenario[]> {
   const root = await realpath(projectRoot).catch((error: any) => { throw new SealwrapperError(`Project root cannot be resolved: ${projectRoot}${error?.message ? ` (${error.message})` : ''}`, 3); });
   const prepared: PreparedScenario[] = [];
   for (const file of files) {
     const scenarioPath = await assertSafeProjectFile(root, file, 'Scenario file');
     const scenario = normalizeScenario(JSON.parse(await readFile(scenarioPath, 'utf8')));
-    if (releaseOnly && !scenario.release) continue;
+    if (!selectedScenario(file, scenario, selection)) continue;
     const archives = await Promise.all((scenario.packages ?? []).map((item: string) => resolveScenarioArchive(root, item)));
     prepared.push({ file, scenario, archives });
   }
   if (prepared.length === 0) {
-    if (releaseOnly) throw new SealwrapperError('No release-marked scenario files found', 2);
+    if (selection.releaseOnly && !selection.filter && selection.tags.length === 0) throw new SealwrapperError('No release-marked scenario files found', 2);
+    if (selection.filter || selection.tags.length > 0) throw new SealwrapperError('No scenario files match the requested selection', 2);
     throw new SealwrapperError('No scenario files were executed', 2);
   }
   return prepared;
 }
 
 async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOptions: ScenarioOptions) {
-  const { targetId, render, png, identity, theme, style, showMembers, snapshot: compareSnapshots, updateSnapshots, release: releaseOnly, offline, refreshIdentities } = scenarioOptions;
+  const { targetId, render, png, identity, theme, style, showMembers, snapshot: compareSnapshots, updateSnapshots, release: releaseOnly, offline, refreshIdentities, filter, tags, timeoutMs } = scenarioOptions;
   if (png && !render) throw new SealwrapperError('--png requires --render', 2);
   if (compareSnapshots && updateSnapshots) throw new SealwrapperError('--snapshot and --update-snapshots cannot be combined', 2);
   if (identity !== 'qq-public') throw new SealwrapperError('Only --identity qq-public is supported', 2);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw new SealwrapperError('--timeout-ms must be between 1 and 300000', 2);
+  if (filter !== undefined && (filter.length === 0 || filter.length > 256 || /[\u0000-\u001f\u007f-\u009f]/u.test(filter))) throw new SealwrapperError('--filter must be 1 to 256 printable characters', 2);
+  if (!tags.every((tag) => scenarioTagPattern.test(tag))) throw new SealwrapperError('--tag must be a lowercase alphanumeric tag up to 64 characters', 2);
+  if (new Set(tags).size !== tags.length) throw new SealwrapperError('--tag must not be specified more than once with the same value', 2);
   const files = await scenarioFiles(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const selectedTargets = targetId ? [targetId] : configuredTargetIds(config);
-  const scenarios = await prepareScenarios(projectRoot, files, releaseOnly);
+  const scenarios = await prepareScenarios(projectRoot, files, { releaseOnly, filter, tags });
   const prepared = await stageArchive(projectRoot, selectedTargets);
   for (const selectedTargetId of selectedTargets) {
     const checked = await resourceCheck(projectRoot, options, {}, selectedTargetId, prepared);
     for (const { file, scenario, archives } of scenarios) {
-      options.progress?.update(`Running scenario ${basename(file)} (${selectedTargetId})`);
-      const result = await invokeBridge({ worktree: checked.verified.worktree, target: checked.target, operation: 'scenario', archive: checked.archive, archives, scenario });
-      const expectsDiagnostics = scenario.expect?.diagnostics !== undefined;
-      if (!result.ok && !expectsDiagnostics) {
-        printDiagnostics(options, result);
-        throw new SealwrapperError(`Scenario bridge failed: ${basename(file)} (${selectedTargetId})`, 1);
-      }
-      assertTranscriptExpectation(result.transcript ?? { messages: [] }, scenario.expect, result.diagnostics ?? []);
-      if (scenario.expect?.random?.repeatable === true) {
-        const repeated = await invokeBridge({ worktree: checked.verified.worktree, target: checked.target, operation: 'scenario', archive: checked.archive, archives, scenario });
-        if (!repeated.ok || JSON.stringify(repeated.transcript) !== JSON.stringify(result.transcript)) throw new SealwrapperError(`Scenario seeded-random transcript is not repeatable: ${basename(file)} (${selectedTargetId})`, 1);
-      }
-      const snapshotPath = selectedTargets.length === 1 ? `${file}.snapshot.json` : `${file}.${selectedTargetId}.snapshot.json`;
-      if (updateSnapshots) {
-        if (!result.transcript) throw new SealwrapperError(`Cannot snapshot diagnostics-only scenario: ${basename(file)}`, 2);
-        await writeSafeProjectFile(projectRoot, snapshotPath, `${JSON.stringify(result.transcript, null, 2)}\n`, { mode: 0o644, label: 'Scenario snapshot' });
-      }
-      else if (compareSnapshots) {
-        if (!(await exists(snapshotPath))) throw new SealwrapperError(`Scenario snapshot does not exist: ${snapshotPath}; pass --update-snapshots to create it`, 2);
-        if (!result.transcript) throw new SealwrapperError(`Cannot compare a snapshot for diagnostics-only scenario: ${basename(file)}`, 2);
-        assertTranscriptExpectation(result.transcript, { transcript: JSON.parse(await readFile(snapshotPath, 'utf8')) });
-      }
-      output(options, `Scenario passed: ${basename(file)} (${selectedTargetId})`);
-      if (render && result.transcript) {
-        const reportName = selectedTargets.length === 1 ? basename(file, '.json') : `${basename(file, '.json')}-${selectedTargetId}`;
-        const report = await writeScenarioReport({ projectRoot, name: reportName, transcript: result.transcript, offline, refreshIdentities, theme, style, showMembers, png });
-        for (const warning of report.warnings) output(options, `IDENTITY WARNING ${warning}`);
-        output(options, `Report: ${report.json}, ${report.svg}, ${report.html}${report.png ? `, ${report.png}` : ''}`);
+      const name = basename(file);
+      const startedAt = Date.now();
+      try {
+        options.progress?.update(`Running scenario ${name} (${selectedTargetId})`);
+        const result = await invokeBridge({ worktree: checked.verified.worktree, target: checked.target, operation: 'scenario', archive: checked.archive, archives, scenario, timeoutMs });
+        const expectsDiagnostics = scenario.expect?.diagnostics !== undefined;
+        if (!result.ok && !expectsDiagnostics) {
+          printDiagnostics(options, result);
+          throw new SealwrapperError(`Scenario bridge failed: ${name} (${selectedTargetId})`, 1);
+        }
+        assertTranscriptExpectation(result.transcript ?? { messages: [] }, scenario.expect, result.diagnostics ?? []);
+        if (scenario.expect?.random?.repeatable === true) {
+          const repeated = await invokeBridge({ worktree: checked.verified.worktree, target: checked.target, operation: 'scenario', archive: checked.archive, archives, scenario, timeoutMs });
+          if (!repeated.ok || JSON.stringify(repeated.transcript) !== JSON.stringify(result.transcript)) throw new SealwrapperError(`Scenario seeded-random transcript is not repeatable: ${name} (${selectedTargetId})`, 1);
+        }
+        const snapshotPath = selectedTargets.length === 1 ? `${file}.snapshot.json` : `${file}.${selectedTargetId}.snapshot.json`;
+        if (updateSnapshots) {
+          if (!result.transcript) throw new SealwrapperError(`Cannot snapshot diagnostics-only scenario: ${name}`, 2);
+          await writeSafeProjectFile(projectRoot, snapshotPath, `${JSON.stringify(result.transcript, null, 2)}\n`, { mode: 0o644, label: 'Scenario snapshot' });
+        }
+        else if (compareSnapshots) {
+          if (!(await exists(snapshotPath))) throw new SealwrapperError(`Scenario snapshot does not exist: ${snapshotPath}; pass --update-snapshots to create it`, 2);
+          if (!result.transcript) throw new SealwrapperError(`Cannot compare a snapshot for diagnostics-only scenario: ${name}`, 2);
+          assertTranscriptExpectation(result.transcript, { transcript: JSON.parse(await readFile(snapshotPath, 'utf8')) });
+        }
+        output(options, `Scenario passed: ${name} (${selectedTargetId})`);
+        if (render && result.transcript) {
+          const reportName = selectedTargets.length === 1 ? basename(file, '.json') : `${basename(file, '.json')}-${selectedTargetId}`;
+          const report = await writeScenarioReport({ projectRoot, name: reportName, transcript: result.transcript, offline, refreshIdentities, theme, style, showMembers, png });
+          for (const warning of report.warnings) output(options, `IDENTITY WARNING ${warning}`);
+          output(options, `Report: ${report.json}, ${report.svg}, ${report.html}${report.png ? `, ${report.png}` : ''}`);
+        }
+        recordTestResult(options, { classname: `sealwrapper.scenario.${selectedTargetId}`, name, durationMilliseconds: Date.now() - startedAt, output: scenario.title ? `Scenario: ${scenario.title}` : undefined });
+      } catch (error) {
+        recordTestResult(options, { classname: `sealwrapper.scenario.${selectedTargetId}`, name, durationMilliseconds: Date.now() - startedAt, failure: error instanceof Error ? error.message : String(error), output: scenario.title ? `Scenario: ${scenario.title}` : undefined });
+        throw error;
       }
     }
   }
@@ -429,6 +458,8 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
     release: true,
     offline: true,
     refreshIdentities: false,
+    tags: [],
+    timeoutMs: 120_000,
   });
   const prepared = await stageArchive(projectRoot, selectedTargets);
   const checkedTargets: Awaited<ReturnType<typeof resourceCheck>>[] = [];
@@ -681,6 +712,9 @@ function makeScenarioAction(options: CliOptions): CallbackAction {
   const snapshot = action.defineFlagParameter({ parameterLongName: '--snapshot', description: 'Compare each transcript with its snapshot.' });
   const updateSnapshots = action.defineFlagParameter({ parameterLongName: '--update-snapshots', description: 'Rewrite each transcript snapshot.' });
   const release = action.defineFlagParameter({ parameterLongName: '--release', description: 'Run only scenarios marked for release.' });
+  const filter = action.defineStringParameter({ parameterLongName: '--filter', argumentName: 'TEXT', description: 'Run scenarios whose file name or title contains this literal text.' });
+  const tag = action.defineStringListParameter({ parameterLongName: '--tag', argumentName: 'TAG', description: 'Require a scenario tag; repeat to require multiple tags.' });
+  const timeout = action.defineIntegerParameter({ parameterLongName: '--timeout-ms', argumentName: 'MILLISECONDS', description: 'Per bridge invocation timeout, from 1 to 300000 milliseconds.', defaultValue: 120_000 });
   const offline = action.defineFlagParameter({ parameterLongName: '--offline', description: 'Resolve report identities from the local cache only.' });
   const refreshIdentities = action.defineFlagParameter({ parameterLongName: '--refresh-identities', description: 'Refresh cached report identities when online.' });
   return action.setHandler(async () => {
@@ -695,6 +729,9 @@ function makeScenarioAction(options: CliOptions): CallbackAction {
       snapshot: snapshot.value,
       updateSnapshots: updateSnapshots.value,
       release: release.value,
+      filter: filter.value,
+      tags: tag.values,
+      timeoutMs: timeout.value,
       offline: offline.value,
       refreshIdentities: refreshIdentities.value,
     }), 'Scenarios passed');
@@ -987,11 +1024,13 @@ export async function runCli(argumentsList: string[], options: CliOptions) {
   if (format !== undefined && selectedAction === 'package') throw new SealwrapperError('sealwrapper is sealpack-only; package has no --format option', 2);
   const machine = format === 'json' || format === 'junit';
   const messages: string[] = [];
+  const testResults: OutputTestCase[] = [];
+  if (machine) runtimeOptions.testResults = testResults;
   if (machine) runtimeOptions.write = (line) => { messages.push(line); };
   const emitMachine = (ok: boolean, error?: unknown) => {
     if (!machine) return;
     const detail = error instanceof SealwrapperError ? { message: error.message, exitCode: error.exitCode } : error instanceof Error ? { message: error.message } : error === undefined ? undefined : { message: String(error) };
-    const rendered = renderOutput(format, selectedAction ?? 'help', ok, messages, detail);
+    const rendered = renderOutput(format, selectedAction ?? 'help', ok, messages, detail, testResults);
     if (options.write) options.write(rendered.trimEnd());
     else process.stdout.write(rendered);
   };

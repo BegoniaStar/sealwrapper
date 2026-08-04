@@ -1,5 +1,7 @@
 import { invariant, SealwrapperError } from './errors.ts';
 
+const scenarioTagPattern = /^[a-z0-9](?:[a-z0-9._-]{0,63})$/u;
+
 function object(value: unknown, label: string): Record<string, any> {
   invariant(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
   return value as Record<string, any>;
@@ -226,11 +228,16 @@ function contains(actual: any, expected: any): boolean {
 
 export function normalizeScenario(raw: unknown): any {
   const scenario = structuredClone(object(raw, 'scenario'));
-  onlyKeys(scenario, 'scenario', ['$schema', 'release', 'title', 'conversation', 'messages', 'clock', 'seed', 'variables', 'users', 'host', 'network', 'packages', 'expect']);
+  onlyKeys(scenario, 'scenario', ['$schema', 'release', 'title', 'tags', 'conversation', 'messages', 'clock', 'seed', 'variables', 'users', 'host', 'network', 'packages', 'expect']);
   if (scenario.$schema !== undefined) invariant(typeof scenario.$schema === 'string', 'scenario.$schema must be a string');
   if (scenario.release !== undefined) invariant(typeof scenario.release === 'boolean', 'scenario.release must be a boolean');
   else scenario.release = false;
   if (scenario.title !== undefined) invariant(typeof scenario.title === 'string', 'scenario.title must be a string');
+  if (scenario.tags !== undefined) {
+    invariant(Array.isArray(scenario.tags) && scenario.tags.every((tag) => typeof tag === 'string' && scenarioTagPattern.test(tag)), 'scenario.tags must contain lowercase alphanumeric tags up to 64 characters');
+    invariant(new Set(scenario.tags).size === scenario.tags.length, 'scenario.tags must not contain duplicates');
+    scenario.tags.sort((left: string, right: string) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
+  } else scenario.tags = [];
   if (scenario.conversation !== undefined) {
     const conversation = object(scenario.conversation, 'scenario.conversation');
     onlyKeys(conversation, 'scenario.conversation', ['kind', 'id', 'name', 'memberCount']);
