@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.scenario.schema.json",
+  "title": "Sealwrapper scenario",
+  "description": "A deterministic fake-QQ scenario for sealwrapper. The CLI performs the additional runtime checks that JSON Schema cannot express, including ISO timestamp normalization and regular-expression compilation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["messages"],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri-reference" },
+    "release": { "type": "boolean" },
+    "title": { "type": "string" },
+    "conversation": { "$ref": "#/$defs/conversation" },
+    "clock": { "type": "string", "format": "date-time" },
+    "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "variables": { "$ref": "#/$defs/variables" },
+    "users": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[0-9]+$" },
+      "additionalProperties": { "$ref": "#/$defs/user" }
+    },
+    "host": { "$ref": "#/$defs/host" },
+    "network": { "$ref": "#/$defs/network" },
+    "packages": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.)[^\\\\]+\\.sealpack$" }
+    },
+    "messages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/message" }
+    },
+    "expect": { "$ref": "#/$defs/expect" }
+  },
+  "$defs": {
+    "scalar": { "type": ["string", "number", "boolean"] },
+    "variables": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/scalar" }
+    },
+    "role": { "enum": ["owner", "admin", "member", "bot"] },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nickname": { "type": "string" },
+        "role": { "$ref": "#/$defs/role" },
+        "variables": { "$ref": "#/$defs/variables" }
+      }
+    },
+    "conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["group", "private"] },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "memberCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "diceMasters": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^(?:QQ:)?[0-9]+$" }
+        },
+        "extensionConfigs": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000]+$" },
+          "additionalProperties": { "$ref": "#/$defs/variables" }
+        }
+      }
+    },
+    "headers": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$" },
+      "additionalProperties": { "type": "string" }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["method", "url", "response"],
+            "properties": {
+              "method": { "type": "string", "pattern": "^[A-Za-z]+$" },
+              "url": { "type": "string", "pattern": "^http://[^\\s]+$" },
+              "headers": { "$ref": "#/$defs/headers" },
+              "body": { "type": "string" },
+              "response": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["status", "body"],
+                "properties": {
+                  "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+                  "headers": { "$ref": "#/$defs/headers" },
+                  "body": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "segment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "text"],
+          "properties": { "type": { "const": "text" }, "text": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "target"],
+          "properties": { "type": { "const": "at" }, "target": { "type": "string", "pattern": "^(?:[0-9]+|all)$" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": { "type": { "const": "face" }, "id": { "type": ["string", "number"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "image" }, "url": { "type": "string" }, "alt": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "reply" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "forward" } }
+        }
+      ]
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "qq": { "type": "string", "pattern": "^[0-9]+$" },
+        "nickname": { "type": "string" },
+        "text": { "type": "string" },
+        "role": { "$ref": "#/$defs/role" },
+        "scope": { "enum": ["group", "private"] },
+        "user": { "$ref": "#/$defs/user" },
+        "variables": { "$ref": "#/$defs/variables" },
+        "segments": { "type": "array", "items": { "$ref": "#/$defs/segment" } }
+      },
+      "anyOf": [
+        { "required": ["text"] },
+        { "required": ["segments"] }
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ruleId"],
+      "properties": {
+        "ruleId": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["error", "warning", "note"] }
+      }
+    },
+    "outputExpectation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "text": { "type": "string" },
+        "textPattern": { "type": "string", "minLength": 1 }
+      },
+      "not": { "required": ["text", "textPattern"] }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "noOutput": { "type": "boolean" },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/outputExpectation" } },
+        "transcript": { "type": "object" },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+        "cooldown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inputSequence", "outputs"],
+          "properties": {
+            "inputSequence": { "type": "integer", "minimum": 1 },
+            "outputs": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "priority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inputSequence", "text"],
+          "properties": {
+            "inputSequence": { "type": "integer", "minimum": 1 },
+            "text": { "type": "string" }
+          }
+        },
+        "random": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inputSequence", "oneOf"],
+          "properties": {
+            "inputSequence": { "type": "integer", "minimum": 1 },
+            "oneOf": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "repeatable": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -67,7 +67,9 @@
 }
 ```
 
-`$schema` 是可选字符串，适合编辑器提示；它不改变当前严格的验证规则。
+`$schema` 是可选字符串，适合编辑器提示；`sealw init` 会写入
+`https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.config.schema.json`。
+它不改变当前严格的验证规则，也不能替代 `sealw` 的跨字段校验。
 
 ## `package`
 

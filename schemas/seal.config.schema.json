@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.config.schema.json",
+  "title": "Sealwrapper project configuration",
+  "description": "Schema v2 for a sealpack-only SealDice project. The sealwrapper CLI remains the authoritative validator for cross-field target and path checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "package", "sealDice", "release", "sealpack"],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri-reference" },
+    "schemaVersion": { "const": 2 },
+    "package": { "$ref": "#/$defs/package" },
+    "build": { "$ref": "#/$defs/build" },
+    "sealDice": { "$ref": "#/$defs/sealDice" },
+    "release": { "$ref": "#/$defs/release" },
+    "sealpack": { "$ref": "#/$defs/sealpack" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "sealpack": {
+            "properties": {
+              "contents": { "required": ["scripts"] }
+            }
+          }
+        }
+      },
+      "then": { "required": ["build"] },
+      "else": { "not": { "required": ["build"] } }
+    }
+  ],
+  "$defs": {
+    "text": {
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]*$"
+    },
+    "nonEmptyText": {
+      "allOf": [
+        { "$ref": "#/$defs/text" },
+        { "minLength": 1 }
+      ]
+    },
+    "projectPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]+$"
+    },
+    "assetPath": {
+      "allOf": [
+        { "$ref": "#/$defs/projectPath" },
+        { "pattern": "^assets(?:/|$)" }
+      ]
+    },
+    "targetId": {
+      "type": "string",
+      "enum": ["1.6.0"],
+      "description": "An ID in the sealwrapper release's immutable target registry."
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^[\\p{L}\\p{N}_-]{1,64}/[\\p{L}\\p{N}_-]{1,64}$"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "authors", "license", "description", "homepage"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyText" },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "authors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonEmptyText" }
+        },
+        "license": { "$ref": "#/$defs/nonEmptyText" },
+        "description": { "$ref": "#/$defs/text" },
+        "homepage": { "$ref": "#/$defs/text" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "ecmaTarget", "bundleFileName"],
+      "properties": {
+        "entry": {
+          "allOf": [
+            { "$ref": "#/$defs/projectPath" },
+            { "pattern": "^src/.+\\.(?:ts|mts|cts|js|mjs|cjs)$" }
+          ]
+        },
+        "ecmaTarget": { "$ref": "#/$defs/nonEmptyText" },
+        "bundleFileName": {
+          "allOf": [
+            { "$ref": "#/$defs/nonEmptyText" },
+            { "pattern": "^[^/\\\\]+$" }
+          ]
+        }
+      }
+    },
+    "sealDice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildTarget", "defaultTarget"],
+      "properties": {
+        "buildTarget": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/targetId" }
+        },
+        "defaultTarget": { "$ref": "#/$defs/targetId" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directory", "checksum", "artifactPolicy"],
+      "properties": {
+        "directory": { "$ref": "#/$defs/projectPath" },
+        "checksum": { "const": "sha256" },
+        "artifactPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["forbiddenPaths", "forbiddenExtensions"],
+          "properties": {
+            "forbiddenPaths": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+            "forbiddenExtensions": { "type": "array", "items": { "$ref": "#/$defs/text" } }
+          }
+        }
+      }
+    },
+    "resourceContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": { "source": { "type": "string" } }
+    },
+    "scriptContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundle", "path"],
+      "properties": {
+        "bundle": { "const": true },
+        "path": {
+          "allOf": [
+            { "$ref": "#/$defs/projectPath" },
+            { "pattern": "^scripts/.+\\.js$" }
+          ]
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "networkHosts", "acknowledgeUnrestrictedNetwork", "fileRead", "fileWrite", "dangerous", "httpServer", "ipc"],
+      "properties": {
+        "network": { "type": "boolean" },
+        "networkHosts": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyText" } },
+        "acknowledgeUnrestrictedNetwork": { "type": "boolean" },
+        "fileRead": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyText" } },
+        "fileWrite": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyText" } },
+        "dangerous": { "type": "boolean" },
+        "httpServer": { "type": "boolean" },
+        "ipc": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyText" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "network": { "const": false } } },
+          "then": {
+            "properties": {
+              "networkHosts": { "maxItems": 0 },
+              "acknowledgeUnrestrictedNetwork": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "network": { "const": true },
+              "networkHosts": { "maxItems": 0 }
+            }
+          },
+          "then": { "properties": { "acknowledgeUnrestrictedNetwork": { "const": true } } }
+        }
+      ]
+    },
+    "sealpack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageId", "minSealDice", "contents", "dependencies", "permissions", "readme", "assets", "store"],
+      "properties": {
+        "packageId": { "$ref": "#/$defs/packageId" },
+        "minSealDice": { "$ref": "#/$defs/targetId" },
+        "contents": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "scripts": { "$ref": "#/$defs/scriptContent" },
+            "decks": { "allOf": [{ "$ref": "#/$defs/resourceContent" }, { "properties": { "source": { "const": "content/decks" } } }] },
+            "reply": { "allOf": [{ "$ref": "#/$defs/resourceContent" }, { "properties": { "source": { "const": "content/reply" } } }] },
+            "helpdoc": { "allOf": [{ "$ref": "#/$defs/resourceContent" }, { "properties": { "source": { "const": "content/helpdoc" } } }] },
+            "templates": { "allOf": [{ "$ref": "#/$defs/resourceContent" }, { "properties": { "source": { "const": "content/templates" } } }] }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/packageId" },
+          "additionalProperties": { "$ref": "#/$defs/nonEmptyText" }
+        },
+        "permissions": { "$ref": "#/$defs/permissions" },
+        "readme": { "const": "README.md" },
+        "assets": { "type": "array", "items": { "$ref": "#/$defs/assetPath" } },
+        "store": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["category", "icon", "banner", "screenshots"],
+          "properties": {
+            "category": { "$ref": "#/$defs/text" },
+            "icon": { "anyOf": [{ "const": "" }, { "$ref": "#/$defs/assetPath" }] },
+            "banner": { "anyOf": [{ "const": "" }, { "$ref": "#/$defs/assetPath" }] },
+            "screenshots": { "type": "array", "items": { "$ref": "#/$defs/assetPath" } }
+          }
+        }
+      }
+    }
+  }
+}

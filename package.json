@@ -13,6 +13,7 @@
     "api/",
     "patches/",
     "tools/seal-api-scan/",
+    "schemas/",
     "types/",
     "sealw"
   ],

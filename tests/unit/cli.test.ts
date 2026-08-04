@@ -37,6 +37,7 @@ test('init creates a schema-v2 resource project with a target-aware lock', async
   const destination = join(tmpdir(), `sealwrapper-init-${Date.now()}`);
   await runCli(['init', destination, '--kind', 'resource', '--no-sync'], { cwd: process.cwd(), write: () => {} });
   const config = JSON.parse(await readFile(join(destination, 'seal.config.json'), 'utf8'));
+  assert.equal(config.$schema, 'https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.config.schema.json');
   assert.equal(config.schemaVersion, 2);
   assert.deepEqual(config.sealDice.buildTarget, ['1.6.0']);
   assert.equal(config.sealDice.defaultTarget, '1.6.0');

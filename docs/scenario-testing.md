@@ -10,6 +10,13 @@
 sealw scenario test
 ```
 
+场景可在顶层添加下列 `$schema`，以获得编辑器补全和即时结构校验。运行时仍由 `sealw` 执行
+确定性、正则和跨字段检查。
+
+```json
+"$schema": "https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.scenario.schema.json"
+```
+
 每一个文件都是一个连续会话。bridge 按 `sequence` 顺序发送输入，收集该输入产生的所有输出，
 再继续下一条输入。因此可用同一文件验证 storage、冷却时间、运行时注册和多用户交互。
 

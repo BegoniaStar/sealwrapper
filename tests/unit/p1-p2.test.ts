@@ -126,6 +126,11 @@ test('P2 scenario declarations preserve deterministic clock, seed, users, variab
   assert.throws(() => normalizeScenario({ messages: [], variables: { hp: { nested: true } } }), /string, number, or boolean/);
   assert.throws(() => normalizeScenario({ clock: 'tomorrow', messages: [] }), /ISO-8601/);
   assert.throws(() => normalizeScenario({ messages: [{ sequence: '1', text: 'hello' }] }), /sequence/);
+  assert.throws(() => normalizeScenario({ messages: [], unknown: true }), /scenario\.unknown/);
+  assert.throws(() => normalizeScenario({ conversation: { kind: 'channel' }, messages: [] }), /conversation\.kind/);
+  assert.throws(() => normalizeScenario({ messages: [{ text: 'hello', direction: 'out' }] }), /direction.*unsupported/);
+  assert.throws(() => normalizeScenario({ messages: [], expect: { unknown: true } }), /expect\.unknown/);
+  assert.throws(() => normalizeScenario({ messages: [], packages: ['other\\package.sealpack'] }), /slash-separated/);
 });
 
 test('P2 scenarios declare release gates and explicit cooldown, priority, and seeded-random assertions', () => {
@@ -189,6 +194,7 @@ test('P2 scenarios preserve declared inbound QQ segments without granting URL or
   assert.equal(scenario.messages[0].text, 'hello');
   assert.deepEqual(scenario.messages[0].segments.map((segment: any) => segment.type), ['at', 'text', 'image']);
   assert.throws(() => normalizeScenario({ messages: [{ segments: [{ type: 'at', target: 'not-a-qq' }] }] }), /target/);
+  assert.throws(() => normalizeScenario({ messages: [{ segments: [{ type: 'image', alt: 1 }] }] }), /alt/);
 });
 
 test('P2 scenarios safely normalize common inbound CQ text into inert fake-QQ segments', () => {

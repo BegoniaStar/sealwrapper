@@ -53,6 +53,7 @@ type WatchOptions = { once: boolean; targetId?: string };
 type PackageOptions = { signKey?: string; signKeyId?: string };
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const execFileAsync = promisify(execFile);
+const projectConfigSchema = 'https://raw.githubusercontent.com/BegoniaStar/sealwrapper/main/schemas/seal.config.schema.json';
 
 function output(options: CliOptions, line: string) { (options.write ?? ((value) => process.stdout.write(`${value}\n`)))(line); }
 
@@ -168,6 +169,7 @@ function defaultConfig(kind: string, selectedTarget = defaultTargetId) {
   if (scripts) contents.scripts = { bundle: true, path: 'scripts/example.js' };
   if (resources) { contents.decks = { source: 'content/decks' }; contents.reply = { source: 'content/reply' }; }
   return {
+    $schema: projectConfigSchema,
     schemaVersion: 2,
     package: { name: 'My SealDice Package', version: '0.1.0', authors: ['Your Name'], license: 'MIT', description: '', homepage: '' },
     ...(scripts ? { build: { entry: 'src/index.ts', ecmaTarget: 'es6', bundleFileName: 'example.js' } } : {}),

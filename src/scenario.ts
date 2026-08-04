@@ -10,6 +10,10 @@ function array(value: unknown, label: string): any[] {
   return value;
 }
 
+function onlyKeys(value: Record<string, any>, label: string, allowed: readonly string[]) {
+  for (const key of Object.keys(value)) invariant(allowed.includes(key), `${label}.${key} is unsupported`);
+}
+
 function outputEvents(transcript: any): any[] {
   return Array.isArray(transcript?.messages) ? transcript.messages.filter((message: any) => message?.direction === 'out') : [];
 }
@@ -82,12 +86,26 @@ function messageSegments(value: unknown, label: string): any[] {
   return value.map((raw, index) => {
     const segment = structuredClone(object(raw, `${label}[${index}]`));
     invariant(['text', 'at', 'image', 'face', 'reply', 'forward'].includes(segment.type), `${label}[${index}].type is unsupported`);
-    if (segment.type === 'text') invariant(typeof segment.text === 'string', `${label}[${index}].text must be a string`);
-    if (segment.type === 'at') invariant(typeof segment.target === 'string' && /^(?:\d+|all)$/.test(segment.target), `${label}[${index}].target must be a numeric QQ ID or all`);
-    if (segment.type === 'face') invariant(typeof segment.id === 'string' || typeof segment.id === 'number', `${label}[${index}].id must be a string or number`);
+    if (segment.type === 'text') {
+      onlyKeys(segment, `${label}[${index}]`, ['type', 'text']);
+      invariant(typeof segment.text === 'string', `${label}[${index}].text must be a string`);
+    }
+    if (segment.type === 'at') {
+      onlyKeys(segment, `${label}[${index}]`, ['type', 'target']);
+      invariant(typeof segment.target === 'string' && /^(?:\d+|all)$/.test(segment.target), `${label}[${index}].target must be a numeric QQ ID or all`);
+    }
+    if (segment.type === 'face') {
+      onlyKeys(segment, `${label}[${index}]`, ['type', 'id']);
+      invariant(typeof segment.id === 'string' || typeof segment.id === 'number', `${label}[${index}].id must be a string or number`);
+    }
     // Images and forwards are transcript payload only. The bridge deliberately
     // never resolves their URL/path, so scenarios cannot turn into I/O tests.
-    if (segment.type === 'image' && segment.url !== undefined) invariant(typeof segment.url === 'string', `${label}[${index}].url must be a string`);
+    if (segment.type === 'image') {
+      onlyKeys(segment, `${label}[${index}]`, ['type', 'url', 'alt']);
+      if (segment.url !== undefined) invariant(typeof segment.url === 'string', `${label}[${index}].url must be a string`);
+      if (segment.alt !== undefined) invariant(typeof segment.alt === 'string', `${label}[${index}].alt must be a string`);
+    }
+    if (segment.type === 'reply' || segment.type === 'forward') onlyKeys(segment, `${label}[${index}]`, ['type']);
     return segment;
   });
 }
@@ -149,6 +167,7 @@ function segmentsFromCqText(value: string): any[] | null {
 
 function user(value: unknown, label: string): Record<string, any> {
   const result = structuredClone(object(value, label));
+  onlyKeys(result, label, ['nickname', 'role', 'variables']);
   if (result.nickname !== undefined) invariant(typeof result.nickname === 'string', `${label}.nickname must be a string`);
   if (result.role !== undefined) invariant(['owner', 'admin', 'member', 'bot'].includes(result.role), `${label}.role must be owner, admin, member, or bot`);
   if (result.variables !== undefined) scalarVariables(result.variables, `${label}.variables`);
@@ -166,6 +185,7 @@ function diagnosticExpectation(value: unknown, label: string) {
 
 function outputExpectation(value: unknown, label: string): void {
   const expected = object(value, label);
+  if (expected.text !== undefined) invariant(typeof expected.text === 'string', `${label}.text must be a string`);
   if (expected.textPattern !== undefined) {
     invariant(typeof expected.textPattern === 'string' && expected.textPattern.length > 0, `${label}.textPattern must be a non-empty regular expression string`);
     invariant(expected.text === undefined, `${label} must use either text or textPattern, not both`);
@@ -182,14 +202,17 @@ function replyAssertion(value: unknown, label: string): Record<string, any> {
 function advancedExpectations(expect: Record<string, any>) {
   if (expect.cooldown !== undefined) {
     const cooldown = replyAssertion(expect.cooldown, 'scenario.expect.cooldown');
+    onlyKeys(cooldown, 'scenario.expect.cooldown', ['inputSequence', 'outputs']);
     invariant(Number.isInteger(cooldown.outputs) && cooldown.outputs >= 0, 'scenario.expect.cooldown.outputs must be a non-negative integer');
   }
   if (expect.priority !== undefined) {
     const priority = replyAssertion(expect.priority, 'scenario.expect.priority');
+    onlyKeys(priority, 'scenario.expect.priority', ['inputSequence', 'text']);
     invariant(typeof priority.text === 'string', 'scenario.expect.priority.text must be a string');
   }
   if (expect.random !== undefined) {
     const random = replyAssertion(expect.random, 'scenario.expect.random');
+    onlyKeys(random, 'scenario.expect.random', ['inputSequence', 'oneOf', 'repeatable']);
     invariant(Array.isArray(random.oneOf) && random.oneOf.length > 0 && random.oneOf.every((item: unknown) => typeof item === 'string'), 'scenario.expect.random.oneOf must be a non-empty string array');
     if (random.repeatable !== undefined) invariant(typeof random.repeatable === 'boolean', 'scenario.expect.random.repeatable must be a boolean');
   }
@@ -203,8 +226,18 @@ function contains(actual: any, expected: any): boolean {
 
 export function normalizeScenario(raw: unknown): any {
   const scenario = structuredClone(object(raw, 'scenario'));
+  onlyKeys(scenario, 'scenario', ['$schema', 'release', 'title', 'conversation', 'messages', 'clock', 'seed', 'variables', 'users', 'host', 'network', 'packages', 'expect']);
+  if (scenario.$schema !== undefined) invariant(typeof scenario.$schema === 'string', 'scenario.$schema must be a string');
   if (scenario.release !== undefined) invariant(typeof scenario.release === 'boolean', 'scenario.release must be a boolean');
   else scenario.release = false;
+  if (scenario.title !== undefined) invariant(typeof scenario.title === 'string', 'scenario.title must be a string');
+  if (scenario.conversation !== undefined) {
+    const conversation = object(scenario.conversation, 'scenario.conversation');
+    onlyKeys(conversation, 'scenario.conversation', ['kind', 'id', 'name', 'memberCount']);
+    if (conversation.kind !== undefined) invariant(conversation.kind === 'group' || conversation.kind === 'private', 'scenario.conversation.kind must be group or private');
+    for (const name of ['id', 'name']) if (conversation[name] !== undefined) invariant(typeof conversation[name] === 'string' && conversation[name].length > 0, `scenario.conversation.${name} must be a non-empty string`);
+    if (conversation.memberCount !== undefined) invariant(Number.isInteger(conversation.memberCount) && conversation.memberCount >= 0, 'scenario.conversation.memberCount must be a non-negative integer');
+  }
   invariant(Array.isArray(scenario.messages), 'scenario.messages must be an array');
   if (scenario.clock !== undefined) scenario.clock = canonicalTimestamp(scenario.clock, 'scenario.clock');
   else scenario.clock = '1970-01-01T00:00:00.000Z';
@@ -222,6 +255,7 @@ export function normalizeScenario(raw: unknown): any {
   } else scenario.users = {};
   scenario.messages = scenario.messages.map((message: any, index: number) => {
     const rawMessage = object(message, `scenario.messages[${index}]`);
+    onlyKeys(rawMessage, `scenario.messages[${index}]`, ['sequence', 'timestamp', 'qq', 'nickname', 'text', 'role', 'scope', 'user', 'variables', 'segments']);
     if (rawMessage.sequence !== undefined) invariant(Number.isSafeInteger(rawMessage.sequence) && rawMessage.sequence > 0, `scenario.messages[${index}].sequence must be a positive safe integer`);
     const normalized: Record<string, any> = { ...rawMessage, sequence: rawMessage.sequence ?? index + 1 };
     if (normalized.qq !== undefined) invariant(typeof normalized.qq === 'string' && /^\d+$/.test(normalized.qq), `scenario.messages[${index}].qq must be a numeric fake QQ ID`);
@@ -253,11 +287,12 @@ export function normalizeScenario(raw: unknown): any {
     }
   }
   if (scenario.packages !== undefined) {
-    invariant(Array.isArray(scenario.packages) && scenario.packages.every((item) => typeof item === 'string' && item.endsWith('.sealpack') && !item.includes('..') && !item.startsWith('/')), 'scenario.packages must contain archive-relative .sealpack paths');
+    invariant(Array.isArray(scenario.packages) && scenario.packages.every((item) => typeof item === 'string' && item.endsWith('.sealpack') && !item.includes('..') && !item.includes('\\') && !item.startsWith('/')), 'scenario.packages must contain slash-separated archive-relative .sealpack paths');
     scenario.packages.sort((left: string, right: string) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
   }
   if (scenario.expect !== undefined) {
     const expect = object(scenario.expect, 'scenario.expect');
+    onlyKeys(expect, 'scenario.expect', ['noOutput', 'outputs', 'transcript', 'diagnostics', 'cooldown', 'priority', 'random']);
     if (expect.noOutput !== undefined) invariant(typeof expect.noOutput === 'boolean', 'scenario.expect.noOutput must be a boolean');
     if (expect.outputs !== undefined) {
       invariant(Array.isArray(expect.outputs), 'scenario.expect.outputs must be an array');
