@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { access, lstat, mkdir, readFile, readlink, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,20 +7,17 @@ import { SealwrapperError } from './errors.ts';
 import { invokeBridge } from './bridge.ts';
 import { loadSealLock, lockedTarget, lockDefaultTarget, type LockedTarget } from './lock.ts';
 import { syncReleaseArtifact, verifyReleaseArtifact } from './release-artifact.ts';
+import { runProcess } from './process.ts';
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 type CommandResult = { code: number; stdout: string; stderr: string };
 
-async function command(program: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<CommandResult> {
-  return await new Promise((resolvePromise, reject) => {
-    const child = spawn(program, args, { cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '';
-    child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
-    child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('close', (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
-  });
+async function command(program: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): Promise<CommandResult> {
+  const result = await runProcess(program, args, { ...options, timeoutMs: options.timeoutMs ?? 120_000, maxOutputBytes: 8 * 1024 * 1024 });
+  if (result.timedOut) throw new SealwrapperError(`${program} ${args.join(' ')} timed out after ${options.timeoutMs ?? 120_000}ms`, 3);
+  if (result.outputExceeded) throw new SealwrapperError(`${program} ${args.join(' ')} exceeded the 8 MiB output limit`, 3);
+  return result;
 }
 
 async function checked(program: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
