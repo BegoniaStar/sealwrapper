@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 import { access, link, lstat, mkdir, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -132,6 +132,59 @@ async function releaseSignature(manifest: any, signingKeyPath?: string, signingK
   const privateKey = createPrivateKey(await readFile(signingKeyPath));
   const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).toString('base64');
   return { algorithm: 'ed25519', keyId: signingKeyId || 'local-ed25519', publicKey, value: sign(null, Buffer.from(stable(manifest), 'utf8'), privateKey).toString('base64') };
+}
+
+function object(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new SealwrapperError(`${label} must be an object`, 3);
+  return value as Record<string, unknown>;
+}
+
+async function readRegularFile(path: string, label: string): Promise<Buffer> {
+  let stat;
+  try { stat = await lstat(path); } catch (error: any) { throw new SealwrapperError(`Unable to inspect ${label}: ${error?.message ?? error}`, 3); }
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new SealwrapperError(`${label} must be a regular non-symbolic-link file`, 3);
+  try { return await readFile(path); } catch (error: any) { throw new SealwrapperError(`Unable to read ${label}: ${error?.message ?? error}`, 3); }
+}
+
+/**
+ * Verify a published release with caller-supplied trust material. The public
+ * key embedded in provenance is checked for transparency, but is never used
+ * as the trust anchor: replacing archive, provenance and that key together
+ * must still fail against the separately supplied trusted key.
+ */
+export async function verifyReleaseBundle({ artifact, provenance, trustedKeyPath, trustedKeyId, lockPath }: { artifact: string; provenance: string; trustedKeyPath: string; trustedKeyId?: string; lockPath?: string }): Promise<{ artifactSha256: string; bytes: number; keyId: string }> {
+  const archive = await readRegularFile(artifact, 'Release artifact');
+  let manifest: Record<string, unknown>;
+  try { manifest = object(JSON.parse((await readRegularFile(provenance, 'Release provenance')).toString('utf8')), 'Release provenance'); }
+  catch (error) {
+    if (error instanceof SealwrapperError) throw error;
+    throw new SealwrapperError(`Release provenance is not valid JSON: ${error instanceof Error ? error.message : String(error)}`, 3);
+  }
+  if (manifest.format !== 'sealwrapper.release/v2') throw new SealwrapperError('Unsupported release provenance format', 3);
+  const artifactRecord = object(manifest.artifact, 'Release provenance artifact');
+  const sha256 = `sha256:${createHash('sha256').update(archive).digest('hex')}`;
+  if (artifactRecord.name !== basename(artifact) || artifactRecord.sha256 !== sha256 || artifactRecord.bytes !== archive.length) throw new SealwrapperError('Release provenance artifact binding does not match the supplied archive', 3);
+  const signature = object(manifest.signature, 'Release provenance signature');
+  if (signature.algorithm !== 'ed25519' || typeof signature.keyId !== 'string' || typeof signature.publicKey !== 'string' || typeof signature.value !== 'string') throw new SealwrapperError('Release provenance signature is malformed or missing', 3);
+  if (trustedKeyId && signature.keyId !== trustedKeyId) throw new SealwrapperError(`Release provenance key ID mismatch: expected ${trustedKeyId}, found ${signature.keyId}`, 3);
+  let trustedKey: ReturnType<typeof createPublicKey>;
+  try { trustedKey = createPublicKey(await readRegularFile(trustedKeyPath, 'Trusted release public key')); }
+  catch (error) {
+    if (error instanceof SealwrapperError) throw error;
+    throw new SealwrapperError(`Trusted release public key is invalid: ${error instanceof Error ? error.message : String(error)}`, 3);
+  }
+  const declaredPublicKey = trustedKey.export({ format: 'der', type: 'spki' }).toString('base64');
+  if (signature.publicKey !== declaredPublicKey) throw new SealwrapperError('Release provenance public key does not match the caller-supplied trusted key', 3);
+  const unsigned = { ...manifest };
+  delete unsigned.signature;
+  if (!verify(null, Buffer.from(stable(unsigned), 'utf8'), trustedKey, Buffer.from(signature.value, 'base64'))) throw new SealwrapperError('Release provenance signature verification failed', 3);
+  if (lockPath) {
+    const lock = object(manifest.lock, 'Release provenance lock');
+    const lockBytes = await readRegularFile(lockPath, 'Release lock');
+    const lockSha256 = `sha256:${createHash('sha256').update(lockBytes).digest('hex')}`;
+    if (lock.sha256 !== lockSha256) throw new SealwrapperError('Release provenance lock binding does not match the caller-supplied lock', 3);
+  }
+  return { artifactSha256: sha256, bytes: archive.length, keyId: signature.keyId };
 }
 
 /**

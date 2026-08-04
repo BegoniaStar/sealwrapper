@@ -19,7 +19,7 @@ import { coreSync, coreVerify, diagnoseToolchain, toolchainError } from './core.
 import { SealwrapperError } from './errors.ts';
 import { describeLockDiff, loadSealLock, lockedTarget, lockTargetIds, renderSealLock } from './lock.ts';
 import { defaultTargetId, getTarget, minimumTargetId, targetIds } from './pinned-target.ts';
-import { publishReleaseFiles, renderReleaseProvenance } from './release.ts';
+import { publishReleaseFiles, renderReleaseProvenance, verifyReleaseBundle } from './release.ts';
 import { auditReplyGrammar } from './reply-audit.ts';
 import { writeScenarioReport } from './reports.ts';
 import { runJsReleaseQualityGate } from './quality.ts';
@@ -687,6 +687,27 @@ function makePackageAction(options: CliOptions): CallbackAction {
   });
 }
 
+function makeReleaseVerifyAction(options: CliOptions): CallbackAction {
+  const action = new CallbackAction('release:verify', 'Verify a signed release artifact.', 'Verify archive bytes, provenance, a caller-supplied trusted Ed25519 public key, and an optional lock binding.');
+  const provenance = action.defineStringParameter({ parameterLongName: '--provenance', argumentName: 'PATH', description: 'Path to the release provenance JSON.' });
+  const trustedKey = action.defineStringParameter({ parameterLongName: '--trusted-key', argumentName: 'PATH', description: 'Externally trusted Ed25519 public key (PEM or DER).' });
+  const trustedKeyId = action.defineStringParameter({ parameterLongName: '--trusted-key-id', argumentName: 'ID', description: 'Expected key ID recorded in provenance.' });
+  const lock = action.defineStringParameter({ parameterLongName: '--lock', argumentName: 'PATH', description: 'Optional seal.lock whose bytes must match provenance.' });
+  const remainder = action.defineCommandLineRemainder({ description: 'The .sealpack artifact to verify.' });
+  return action.setHandler(async () => {
+    if (remainder.values.length !== 1) throw new SealwrapperError('release verify requires exactly one .sealpack artifact path', 2);
+    if (!provenance.value || !trustedKey.value) throw new SealwrapperError('release verify requires --provenance and --trusted-key', 2);
+    const result = await verifyReleaseBundle({
+      artifact: resolve(options.cwd, remainder.values[0]),
+      provenance: resolve(options.cwd, provenance.value),
+      trustedKeyPath: resolve(options.cwd, trustedKey.value),
+      trustedKeyId: trustedKeyId.value,
+      lockPath: lock.value ? resolve(options.cwd, lock.value) : undefined,
+    });
+    output(options, `Release verified: ${result.artifactSha256} (${result.bytes} bytes, key ${result.keyId})`);
+  });
+}
+
 async function updateLock(projectRoot: string, options: CliOptions, allowDirty: boolean, targetId?: string) {
   if (!allowDirty) {
     let status = '';
@@ -738,11 +759,12 @@ const groupedCommands: Readonly<Record<string, string>> = {
   'types audit': 'types:audit',
   'types update': 'types:update',
   'resource check': 'resource:check',
+  'release verify': 'release:verify',
   'scenario test': 'scenario:test',
   'lock update': 'lock:update',
 };
 
-const actionNames = new Set(['init', 'doctor', 'core:sync', 'core:verify', 'types:sync', 'types:verify', 'types:audit', 'types:update', 'typecheck', 'resource:check', 'test', 'scenario:test', 'watch', 'package', 'lock:update']);
+const actionNames = new Set(['init', 'doctor', 'core:sync', 'core:verify', 'types:sync', 'types:verify', 'types:audit', 'types:update', 'typecheck', 'resource:check', 'test', 'scenario:test', 'watch', 'package', 'release:verify', 'lock:update']);
 
 /**
  * RushStack models actions as one token.  Normalize the historical two-token
@@ -844,6 +866,7 @@ function createCommandLine(options: CliOptions): CommandLineParser {
   parser.addAction(makeScenarioAction(options));
   parser.addAction(makeWatchAction(options));
   parser.addAction(makePackageAction(options));
+  parser.addAction(makeReleaseVerifyAction(options));
   parser.addAction(makeLockUpdateAction(options));
   return parser;
 }
