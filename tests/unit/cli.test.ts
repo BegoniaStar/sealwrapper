@@ -82,6 +82,7 @@ test('type contract updates require an explicit write acknowledgement before acc
 test('CLI exposes only sealpack packaging and registered targets', async () => {
   await assert.rejects(() => runCli(['package', '--format', 'js'], { cwd: process.cwd(), write: () => {} }), /sealpack-only/i);
   await assert.rejects(() => runCli(['package', '--format=js'], { cwd: process.cwd(), write: () => {} }), /sealpack-only/i);
+  await assert.rejects(() => runCli(['package', '--target', '1.6.0'], { cwd: process.cwd(), write: () => {} }), /--target|Unrecognized arguments/i);
   await assert.rejects(() => runCli(['resource', 'check', '--target', '1.5.1'], { cwd: process.cwd(), write: () => {} }), /1\.6\.0/);
   await assert.rejects(() => runCli(['core', 'sync', '--core', '/tmp/core'], { cwd: process.cwd(), write: () => {} }), /user-supplied core/i);
   await assert.rejects(() => runCli(['core', 'sync', '--core=/tmp/core'], { cwd: process.cwd(), write: () => {} }), /user-supplied core/i);

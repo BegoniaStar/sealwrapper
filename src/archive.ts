@@ -4,6 +4,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { invariant, SealwrapperError } from './errors.ts';
+import type { BridgeCapabilities } from './capabilities.ts';
 
 const deflate = promisify(deflateRaw);
 const zipDate = 0x0021; // 1980-01-01: deterministic ZIP timestamp
@@ -59,14 +60,36 @@ function centralHeader(entry: any, checksum: number): Buffer {
   return header;
 }
 
-export type ZipArchiveLimits = { compressedSize?: number; expandedSize?: number };
+export type ZipArchiveLimits = { entries?: number; compressedSize?: number; expandedSize?: number; compressionRatio?: number };
+
+/**
+ * Select the intersection of every target's archive contract.  One release
+ * artifact must be acceptable to the entire configured target matrix, so the
+ * least permissive capability is the only sound producer-side limit.
+ */
+export function zipArchiveLimitsForCapabilities(capabilities: readonly Pick<BridgeCapabilities, 'limits'>[]): Required<ZipArchiveLimits> {
+  invariant(capabilities.length > 0, 'At least one target capability is required to create a sealpack archive', 3);
+  const minimum = (field: keyof BridgeCapabilities['limits']) => Math.min(...capabilities.map((item) => item.limits[field]));
+  const limits = {
+    entries: minimum('maxFiles'),
+    compressedSize: minimum('maxArchiveBytes'),
+    expandedSize: minimum('maxExpandedBytes'),
+    compressionRatio: minimum('maxCompressionRatio'),
+  };
+  for (const [name, value] of Object.entries(limits)) invariant(Number.isSafeInteger(value) && value > 0, `Target capability ${name} must be a positive safe integer`, 3);
+  return limits;
+}
 
 export async function createZipArchive(entries: { path: string; data: Buffer }[], limits: ZipArchiveLimits = {}): Promise<Buffer> {
+  const entryLimit = limits.entries ?? maxZipEntries;
   const compressedLimit = limits.compressedSize ?? maxArchiveCompressedSize;
   const expandedLimit = limits.expandedSize ?? maxArchiveExpandedSize;
+  const compressionRatioLimit = limits.compressionRatio ?? 100;
+  invariant(Number.isSafeInteger(entryLimit) && entryLimit > 0 && entryLimit <= maxZipEntries, 'Sealpack entry limit must be a positive classic-ZIP-safe integer', 3);
   invariant(Number.isSafeInteger(compressedLimit) && compressedLimit > 0, 'Sealpack compressed limit must be a positive safe integer', 3);
   invariant(Number.isSafeInteger(expandedLimit) && expandedLimit > 0, 'Sealpack expanded limit must be a positive safe integer', 3);
-  invariant(entries.length <= maxZipEntries, 'Sealpack exceeds classic ZIP entry limit', 3);
+  invariant(Number.isSafeInteger(compressionRatioLimit) && compressionRatioLimit > 0, 'Sealpack compression ratio limit must be a positive safe integer', 3);
+  invariant(entries.length <= entryLimit, `Sealpack exceeds ${entryLimit} entry limit`, 3);
   const names = new Set<string>();
   const resolved: any[] = [];
   let offset = 0;
@@ -84,6 +107,10 @@ export async function createZipArchive(entries: { path: string; data: Buffer }[]
     invariant(expandedSize <= expandedLimit, `Sealpack exceeds ${expandedLimit / (1024 * 1024)} MiB expanded limit`, 3);
     invariant(data.length <= maxZipSize, `Sealpack entry is too large: ${path}`, 3);
     const compressed = Buffer.from(await deflate(data, { level: 9 }));
+    // Keep this byte-for-byte compatible with the bridge's per-entry check:
+    // a highly repetitive file is otherwise an archive bomb that we create
+    // locally only for the bridge to reject later.
+    invariant(data.length === 0 || (compressed.length > 0 && data.length <= compressed.length * compressionRatioLimit), `Sealpack entry ${path} exceeds ${compressionRatioLimit}:1 compression ratio limit`, 3);
     const name = Buffer.from(path, 'utf8');
     const nextOffset = offset + 30 + name.length + compressed.length;
     invariant(name.length <= 0xffff && nextOffset <= maxZipSize, `Sealpack ZIP exceeds classic limits at ${path}`, 3);
@@ -107,8 +134,8 @@ export async function createZipArchive(entries: { path: string; data: Buffer }[]
   return Buffer.concat([...locals, centralDirectory, end]);
 }
 
-export async function archiveSealpack(staged: { files: { path: string; data: Buffer }[] }, destination: string): Promise<void> {
-  const archive = await createZipArchive(staged.files);
+export async function archiveSealpack(staged: { files: { path: string; data: Buffer }[] }, destination: string, limits: ZipArchiveLimits = {}): Promise<void> {
+  const archive = await createZipArchive(staged.files, limits);
   await mkdir(dirname(destination), { recursive: true });
   const temporary = `${destination}.tmp-${process.pid}`;
   try {

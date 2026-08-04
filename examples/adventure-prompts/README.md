@@ -17,7 +17,7 @@ cd examples/adventure-prompts
 ../../sealw core sync --target 1.6.0
 ../../sealw resource check --target 1.6.0
 ../../sealw scenario test --target 1.6.0 --release
-../../sealw package --target 1.6.0
+../../sealw package
 ```
 
 牌堆场景固定 clock 和 seed，并使用 `random.oneOf` 限定 JSON 牌堆的合法结果；其中 `repeatable: true` 会再运行一次 bridge，确认同一 seed 的 transcript 一致。另一个场景用真实 core 的 `#{SPLIT}` 路径验证一条自动回复会拆成两条连续 QQ 消息。`package` 会额外执行 JS 单元测试、严格资源校验与真实的 Install → Enable → Reload smoke。

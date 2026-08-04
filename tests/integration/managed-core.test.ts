@@ -117,7 +117,9 @@ test('managed exact core performs strict validation and real install-enable-relo
   await writeFile(join(root, 'content', 'decks', 'cards.json'), '{"fortune":["yes"]}\n');
   await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
   const compressionBomb = join(root, '.seal', 'compression-bomb.sealpack');
-  await archiveSealpack({ files: [{ path: 'info.toml', data: Buffer.from('format_version = "1.0.0"\n') }, { path: 'assets/repeated.txt', data: Buffer.alloc(1024 * 1024, 0) }] }, compressionBomb);
+  // Deliberately override producer limits to preserve the bridge's consumer
+  // regression test; normal sealwrapper packaging rejects this input earlier.
+  await archiveSealpack({ files: [{ path: 'info.toml', data: Buffer.from('format_version = "1.0.0"\n') }, { path: 'assets/repeated.txt', data: Buffer.alloc(1024 * 1024, 0) }] }, compressionBomb, { compressionRatio: 100_000 });
   const bombResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive: compressionBomb });
   assert.equal(bombResult.ok, false);
   assert.ok(bombResult.diagnostics.some((item: any) => item.ruleId === 'archive.limits' && /compression ratio/.test(item.message)));

@@ -4,5 +4,5 @@
 
 ```sh
 ../../sealw scenario test --target 1.6.0 --release
-../../sealw package --target 1.6.0
+../../sealw package
 ```

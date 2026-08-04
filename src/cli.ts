@@ -11,7 +11,7 @@ import {
   CommandLineParser,
 } from '@rushstack/ts-command-line';
 
-import { archiveSealpack } from './archive.ts';
+import { archiveSealpack, zipArchiveLimitsForCapabilities, type ZipArchiveLimits } from './archive.ts';
 import { auditApiContract, updateApiContract } from './api-contract.ts';
 import { invokeBridge } from './bridge.ts';
 import { configuredDefaultTarget, configuredTargetIds, loadProjectConfig } from './config.ts';
@@ -50,7 +50,7 @@ type ScenarioOptions = {
   refreshIdentities: boolean;
 };
 type WatchOptions = { once: boolean; targetId?: string };
-type PackageOptions = { signKey?: string; signKeyId?: string; targetIds?: string[] } & ResourceCheckOptions;
+type PackageOptions = { signKey?: string; signKeyId?: string };
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const execFileAsync = promisify(execFile);
 
@@ -182,14 +182,22 @@ async function initProject(directory: string | undefined, options: CliOptions, i
   output(options, `Created sealpack-only ${kind} project at ${root}`);
 }
 
-async function stageArchive(projectRoot: string) {
+async function archiveLimits(projectRoot: string, selectedTargetIds: readonly string[]): Promise<Required<ZipArchiveLimits>> {
+  const lock = await loadSealLock(projectRoot, toolRoot);
+  return zipArchiveLimitsForCapabilities(selectedTargetIds.map((id) => lockedTarget(lock, id).testOverlay.capabilities));
+}
+
+async function stageArchive(projectRoot: string, targetIdsToCheck?: readonly string[]) {
   const config = await loadProjectConfig(projectRoot);
+  const selectedTargetIds = targetIdsToCheck ?? configuredTargetIds(config);
+  for (const id of selectedTargetIds) if (!configuredTargetIds(config).includes(id)) throw new SealwrapperError(`Target ${id} is not selected by sealDice.buildTarget`, 2);
+  const limits = await archiveLimits(projectRoot, selectedTargetIds);
   const staged = await stageSealpack({ root: projectRoot, config });
   const directory = join(projectRoot, '.seal', 'stage');
   await ensureSafeProjectDirectory(projectRoot, directory, { label: 'Staging directory' });
   const archive = join(directory, packageFileName(staged));
-  await archiveSealpack(staged, archive);
-  return { config, staged, archive };
+  await archiveSealpack(staged, archive, limits);
+  return { config, staged, archive, limits };
 }
 
 function printDiagnostics(options: CliOptions, result: any) {
@@ -198,10 +206,11 @@ function printDiagnostics(options: CliOptions, result: any) {
 
 async function resourceCheck(projectRoot: string, options: CliOptions, checkOptions: ResourceCheckOptions = {}, targetId?: string, preparedInput?: Awaited<ReturnType<typeof stageArchive>>) {
   options.progress?.update(`Checking resource archive${targetId ? ` (${targetId})` : ''}`);
-  const prepared = preparedInput ?? await stageArchive(projectRoot);
-  const selectedTargetId = targetId ?? configuredDefaultTarget(prepared.config);
-  if (!configuredTargetIds(prepared.config).includes(selectedTargetId)) throw new SealwrapperError(`Target ${selectedTargetId} is not selected by sealDice.buildTarget`, 2);
+  const config = preparedInput?.config ?? await loadProjectConfig(projectRoot);
+  const selectedTargetId = targetId ?? configuredDefaultTarget(config);
+  if (!configuredTargetIds(config).includes(selectedTargetId)) throw new SealwrapperError(`Target ${selectedTargetId} is not selected by sealDice.buildTarget`, 2);
   const target = lockedTarget(await loadSealLock(projectRoot, toolRoot), selectedTargetId);
+  const prepared = preparedInput ?? await stageArchive(projectRoot, [selectedTargetId]);
   const verified = await coreVerify(projectRoot, { targetId: selectedTargetId });
   const result = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive: prepared.archive });
   printDiagnostics(options, result);
@@ -233,7 +242,7 @@ async function watchProject(projectRoot: string, options: CliOptions, watchOptio
   if (!config.build) throw new SealwrapperError('watch is available only to projects with a build entry', 2);
   if (watchOptions.targetId && !configuredTargetIds(config).includes(watchOptions.targetId)) throw new SealwrapperError(`Target ${watchOptions.targetId} is not selected by sealDice.buildTarget`, 2);
   const rebuild = async () => {
-    const staged = await stageArchive(projectRoot);
+    const staged = await stageArchive(projectRoot, watchOptions.targetId ? [watchOptions.targetId] : undefined);
     output(options, `Watch build ready: ${staged.archive}`);
   };
   await rebuild();
@@ -290,7 +299,7 @@ async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOp
   const config = await loadProjectConfig(projectRoot);
   const selectedTargets = targetId ? [targetId] : configuredTargetIds(config);
   const scenarios = await prepareScenarios(projectRoot, files, releaseOnly);
-  const prepared = await stageArchive(projectRoot);
+  const prepared = await stageArchive(projectRoot, selectedTargets);
   for (const selectedTargetId of selectedTargets) {
     const checked = await resourceCheck(projectRoot, options, {}, selectedTargetId, prepared);
     for (const { file, scenario, archives } of scenarios) {
@@ -335,15 +344,28 @@ function artifactViolations(files: { path: string }[], policy: any): string[] {
 async function packageProject(projectRoot: string, options: CliOptions, packageOptions: PackageOptions = {}) {
   options.progress?.update('Preparing release gates');
   const projectConfig = await loadProjectConfig(projectRoot);
-  const selectedTargets = packageOptions.targetIds ?? configuredTargetIds(projectConfig);
+  const selectedTargets = configuredTargetIds(projectConfig);
   if (selectedTargets.length === 0) throw new SealwrapperError('No build targets are configured', 2);
-  for (const id of selectedTargets) if (!configuredTargetIds(projectConfig).includes(id)) throw new SealwrapperError(`Target ${id} is not selected by sealDice.buildTarget`, 2);
   if (projectConfig.build) for (const id of selectedTargets) {
     const result = await typecheckProject(projectRoot, id);
     output(options, `Plugin TypeScript check passed: ${id} (${relative(projectRoot, result.path)})`);
   }
   await runJsReleaseQualityGate(projectRoot, projectConfig);
-  const prepared = await stageArchive(projectRoot);
+  options.progress?.update('Running release scenarios and snapshot gates');
+  await scenarioTest(projectRoot, options, {
+    render: false,
+    png: false,
+    identity: 'qq-public',
+    theme: 'light',
+    style: 'comfortable',
+    showMembers: false,
+    snapshot: true,
+    updateSnapshots: false,
+    release: true,
+    offline: true,
+    refreshIdentities: false,
+  });
+  const prepared = await stageArchive(projectRoot, selectedTargets);
   const checkedTargets: Awaited<ReturnType<typeof resourceCheck>>[] = [];
   for (const id of selectedTargets) {
     const checked = await resourceCheck(projectRoot, options, {}, id, prepared);
@@ -372,7 +394,7 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
     const artifact = join(temporaryRoot, artifactName);
     const checksum = `${artifact}.sha256`;
     const provenance = `${artifact}.release.json`;
-    await archiveSealpack(prepared.staged, artifact); // only after every selected real-core gate succeeds
+    await archiveSealpack(prepared.staged, artifact, prepared.limits); // only after every selected real-core gate succeeds
     const digest = createHash('sha256').update(await readFile(artifact)).digest('hex');
     await writeSafeProjectFile(projectRoot, checksum, `${digest}  ${artifactName}\n`, { mode: 0o644, label: 'Release checksum' });
     // Rendering validates a supplied private key before release/ is touched.
@@ -543,7 +565,7 @@ function makeResourceCheckAction(options: CliOptions): CallbackAction {
   return action.setHandler(async () => {
     const config = await loadProjectConfig(options.cwd);
     const selectedTargets = target.value ? [target.value] : configuredTargetIds(config);
-    const prepared = await stageArchive(options.cwd);
+    const prepared = await stageArchive(options.cwd, selectedTargets);
     await withProgress(options.progress, 'Checking resource archive', async () => {
       for (const selectedTarget of selectedTargets) {
         const sarifPath = sarif.value && selectedTargets.length > 1
@@ -609,12 +631,11 @@ function makeWatchAction(options: CliOptions): CallbackAction {
 }
 
 function makePackageAction(options: CliOptions): CallbackAction {
-  const action = new CallbackAction('package', 'Build and publish a release sealpack.', 'Run type, resource, host, artifact-policy and provenance gates before publishing a complete release set.');
-  const target = defineTarget(action);
+  const action = new CallbackAction('package', 'Build and publish a release sealpack.', 'Run every configured target, release scenario snapshot, artifact-policy and provenance gate before publishing a complete release set.');
   const signKey = action.defineStringParameter({ parameterLongName: '--sign-key', argumentName: 'PATH', description: 'Project-relative Ed25519 private key for provenance signing.' });
   const signKeyId = action.defineStringParameter({ parameterLongName: '--sign-key-id', argumentName: 'ID', description: 'Key identifier recorded in signed provenance.' });
   return action.setHandler(async () => {
-    await withProgress(options.progress, 'Packaging sealpack', () => packageProject(options.cwd, options, { signKey: signKey.value, signKeyId: signKeyId.value, targetIds: target.value ? [target.value] : undefined }), 'Sealpack published');
+    await withProgress(options.progress, 'Packaging sealpack', () => packageProject(options.cwd, options, { signKey: signKey.value, signKeyId: signKeyId.value }), 'Sealpack published');
   });
 }
 

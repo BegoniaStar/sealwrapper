@@ -26,14 +26,16 @@ sealw scenario test --release --snapshot
 sealw package
 ```
 
-未给 `--target` 时，发布会覆盖 `sealDice.buildTarget` 的所有目标。临时缩小到一个已配置目标
-仅适合本地排查：
+发布始终覆盖 `sealDice.buildTarget` 的完整目标矩阵；`package` 不接受 `--target`，避免声明了多
+版本兼容却只验证一个目标。排查单个目标时，请使用不发布的验证命令：
 
 ```sh
-sealw package --target 1.6.0
+sealw resource check --target 1.6.0
+sealw test --target 1.6.0
+sealw scenario test --target 1.6.0 --release --snapshot
 ```
 
-正式声明多版本兼容时必须让默认的矩阵命令通过，不能只发布其中一个目标。
+正式发布前，完整矩阵必须通过。
 
 ## 发布门禁顺序
 
@@ -41,11 +43,12 @@ sealw package --target 1.6.0
 
 1. 对 JavaScript 项目同步类型并运行 TypeScript 检查。
 2. 检查源码格式、用锁定 esbuild 解析源文件，并运行项目单元测试。
-3. 构建 staging archive，检查资源和 manifest。
-4. 用真实受管核心运行 Install -> Enable -> Reload。
-5. 检查 `release.artifactPolicy` 的禁止路径与扩展名。
-6. 生成确定性 archive、SHA-256 checksum 和发布溯源文件。
-7. 在所有输出都准备好后，原子地发布完整文件集。
+3. 对每个目标运行全部标记为 `"release": true` 的场景，并比较其已提交快照。
+4. 构建受所有目标能力上限约束的 staging archive，检查资源和 manifest。
+5. 用真实受管核心运行 Install -> Enable -> Reload。
+6. 检查 `release.artifactPolicy` 的禁止路径与扩展名。
+7. 生成确定性 archive、SHA-256 checksum 和发布溯源文件。
+8. 在所有输出都准备好后，原子地发布完整文件集。
 
 任何步骤失败都不会在 `release/` 中留下新的半成品。已有同名发布文件也不会被覆盖；递增
 `package.version` 后重新发布。
