@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      SEALWRAPPER_CORE_INTEGRATION: "1"
+      SEALWRAPPER_REQUIRE_CORE_INTEGRATION: "1"
+
+    steps:
+      - name: Check out release tag
+        # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install offline report renderer prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk librsvg2-bin
+          fc-match --format '%{family}\n' 'Noto Serif CJK SC' | grep -Fx 'Noto Serif CJK SC'
+          rsvg-convert --version
+
+      - name: Install pinned toolchain
+        # v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+        with:
+          install: true
+          cache: true
+
+      - name: Install locked dependencies
+        run: mise exec -- npm ci
+
+      - name: Verify tagged source
+        run: mise exec -- npm run check
+
+  package:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out release tag
+        # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install pinned toolchain
+        # v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+        with:
+          install: true
+          cache: true
+
+      - name: Install locked dependencies
+        run: mise exec -- npm ci
+
+      - name: Build tool package
+        run: mise exec -- npm run build
+
+      - name: Build release set
+        run: mise exec -- npm run release:prepare
+
+      - name: Upload release set
+        # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: tool-release
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    needs: package
+    if: ${{ vars.ENABLE_ARTIFACT_ATTESTATIONS == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download release set
+        # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: tool-release
+          path: artifacts
+
+      - name: Resolve attestation subjects
+        id: subjects
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' archives < <(find artifacts -maxdepth 1 -type f -name '*.tgz' -print0)
+          mapfile -d '' sboms < <(find artifacts -maxdepth 1 -type f -name '*.sbom.cdx.json' -print0)
+          [[ ${#archives[@]} -eq 1 ]] || { echo "Expected one tarball, found ${#archives[@]}" >&2; exit 1; }
+          [[ ${#sboms[@]} -eq 1 ]] || { echo "Expected one SBOM, found ${#sboms[@]}" >&2; exit 1; }
+          printf 'archive=%s\n' "${archives[0]}" >> "$GITHUB_OUTPUT"
+          printf 'sbom=%s\n' "${sboms[0]}" >> "$GITHUB_OUTPUT"
+
+      # GitHub only supports artifact attestations for private repositories on
+      # Enterprise Cloud. Enable this repository variable after confirming the
+      # plan supports it; checksums, SBOM, and the release manifest are always
+      # produced regardless.
+      - name: Attest npm tarball and SBOM
+        # v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        with:
+          subject-path: ${{ steps.subjects.outputs.archive }}
+          sbom-path: ${{ steps.subjects.outputs.sbom }}
+
+  publish:
+    needs: [package, attest]
+    if: ${{ always() && needs.package.result == 'success' && (needs.attest.result == 'success' || needs.attest.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release set
+        # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: tool-release
+          path: artifacts
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' release_files < <(find artifacts -maxdepth 1 -type f -print0)
+          [[ ${#release_files[@]} -eq 4 ]] || { echo "Expected four release files, found ${#release_files[@]}" >&2; exit 1; }
+
+          mapfile -d '' archives < <(find artifacts -maxdepth 1 -type f -name '*.tgz' -print0)
+          mapfile -d '' checksums < <(find artifacts -maxdepth 1 -type f -name '*.tgz.sha256' -print0)
+          mapfile -d '' sboms < <(find artifacts -maxdepth 1 -type f -name '*.sbom.cdx.json' -print0)
+          mapfile -d '' manifests < <(find artifacts -maxdepth 1 -type f -name '*.tgz.release.json' -print0)
+          [[ ${#archives[@]} -eq 1 ]] || { echo "Expected one tarball, found ${#archives[@]}" >&2; exit 1; }
+          [[ ${#checksums[@]} -eq 1 ]] || { echo "Expected one checksum, found ${#checksums[@]}" >&2; exit 1; }
+          [[ ${#sboms[@]} -eq 1 ]] || { echo "Expected one SBOM, found ${#sboms[@]}" >&2; exit 1; }
+          [[ ${#manifests[@]} -eq 1 ]] || { echo "Expected one manifest, found ${#manifests[@]}" >&2; exit 1; }
+
+          gh release create "$GITHUB_REF_NAME" \
+            "${archives[0]}" \
+            "${checksums[0]}" \
+            "${sboms[0]}" \
+            "${manifests[0]}" \
+            --verify-tag \
+            --title "sealwrapper ${GITHUB_REF_NAME#v}" \
+            --generate-notes
