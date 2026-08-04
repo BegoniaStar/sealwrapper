@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,7 @@ import { configuredDefaultTarget, loadProjectConfig } from './config.ts';
 import { SealwrapperError } from './errors.ts';
 import { loadSealLock, lockedTarget } from './lock.ts';
 import { defaultTargetId } from './pinned-target.ts';
+import { writeSafeProjectFile } from './safe-path.ts';
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const declarationRelativePath = (targetId: string) => `.seal/types/sealdice-${targetId}.d.ts`;
@@ -62,10 +63,7 @@ async function generatedDeclaration(projectRoot: string, targetId?: string): Pro
 export async function syncProjectTypes(projectRoot: string, targetId?: string): Promise<TypeSyncResult> {
   const root = resolve(projectRoot);
   const generated = await generatedDeclaration(root, targetId);
-  await mkdir(dirname(generated.result.path), { recursive: true });
-  const temporary = `${generated.result.path}.tmp-${process.pid}`;
-  await writeFile(temporary, generated.content, { mode: 0o644 });
-  await rename(temporary, generated.result.path);
+  await writeSafeProjectFile(root, generated.result.path, generated.content, { mode: 0o644, label: 'Managed type declaration' });
   return generated.result;
 }
 

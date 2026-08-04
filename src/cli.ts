@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { watch as watchFs } from 'node:fs';
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -29,6 +29,7 @@ import { stageSealpack } from './stage.ts';
 import { syncProjectTypes, typecheckProject, verifyProjectTypes } from './types.ts';
 import { createProgress, type ProgressReporter, withProgress } from './progress.ts';
 import { parseOutputFormat, renderOutput, type OutputFormat } from './output.ts';
+import { assertSafeProjectFile, createSafeProjectTempDirectory, ensureSafeProjectDirectory, writeSafeProjectFile } from './safe-path.ts';
 
 export type CliOptions = { cwd: string; write?: (line: string) => void; progress?: ProgressReporter; format?: OutputFormat };
 type InitKind = 'js' | 'resource' | 'hybrid';
@@ -185,7 +186,7 @@ async function stageArchive(projectRoot: string) {
   const config = await loadProjectConfig(projectRoot);
   const staged = await stageSealpack({ root: projectRoot, config });
   const directory = join(projectRoot, '.seal', 'stage');
-  await mkdir(directory, { recursive: true });
+  await ensureSafeProjectDirectory(projectRoot, directory, { label: 'Staging directory' });
   const archive = join(directory, packageFileName(staged));
   await archiveSealpack(staged, archive);
   return { config, staged, archive };
@@ -208,8 +209,7 @@ async function resourceCheck(projectRoot: string, options: CliOptions, checkOpti
   if (sarif) {
     if (sarif.includes('..') || sarif.startsWith('/')) throw new SealwrapperError('--sarif must be a project-relative path', 2);
     const path = join(projectRoot, sarif);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(toSarif(result.diagnostics ?? []), null, 2)}\n`, { mode: 0o644 });
+    await writeSafeProjectFile(projectRoot, path, `${JSON.stringify(toSarif(result.diagnostics ?? []), null, 2)}\n`, { mode: 0o644, label: 'SARIF report' });
     output(options, `SARIF: ${path}`);
   }
   if (!result.ok) throw new SealwrapperError('Resource check failed', 1);
@@ -253,8 +253,10 @@ async function watchProject(projectRoot: string, options: CliOptions, watchOptio
 
 async function scenarioFiles(projectRoot: string): Promise<string[]> {
   const directory = join(projectRoot, 'tests', 'scenarios');
+  await ensureSafeProjectDirectory(projectRoot, directory, { create: false, label: 'Scenario directory' });
   let entries: any[];
   try { entries = await readdir(directory, { withFileTypes: true }); } catch { throw new SealwrapperError('No scenario files found under tests/scenarios', 2); }
+  for (const entry of entries) if (entry.isSymbolicLink()) throw new SealwrapperError(`Scenario directory must not contain symbolic links: ${entry.name}`, 2);
   const files = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.json')).map((entry) => join(directory, entry.name)).sort((left, right) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
   if (files.length === 0) throw new SealwrapperError('No scenario files found under tests/scenarios', 2);
   return files;
@@ -266,7 +268,8 @@ async function prepareScenarios(projectRoot: string, files: readonly string[], r
   const root = await realpath(projectRoot).catch((error: any) => { throw new SealwrapperError(`Project root cannot be resolved: ${projectRoot}${error?.message ? ` (${error.message})` : ''}`, 3); });
   const prepared: PreparedScenario[] = [];
   for (const file of files) {
-    const scenario = normalizeScenario(JSON.parse(await readFile(file, 'utf8')));
+    const scenarioPath = await assertSafeProjectFile(root, file, 'Scenario file');
+    const scenario = normalizeScenario(JSON.parse(await readFile(scenarioPath, 'utf8')));
     if (releaseOnly && !scenario.release) continue;
     const archives = await Promise.all((scenario.packages ?? []).map((item: string) => resolveScenarioArchive(root, item)));
     prepared.push({ file, scenario, archives });
@@ -306,7 +309,7 @@ async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOp
       const snapshotPath = selectedTargets.length === 1 ? `${file}.snapshot.json` : `${file}.${selectedTargetId}.snapshot.json`;
       if (updateSnapshots) {
         if (!result.transcript) throw new SealwrapperError(`Cannot snapshot diagnostics-only scenario: ${basename(file)}`, 2);
-        await writeFile(snapshotPath, `${JSON.stringify(result.transcript, null, 2)}\n`, { mode: 0o644 });
+        await writeSafeProjectFile(projectRoot, snapshotPath, `${JSON.stringify(result.transcript, null, 2)}\n`, { mode: 0o644, label: 'Scenario snapshot' });
       }
       else if (compareSnapshots) {
         if (!(await exists(snapshotPath))) throw new SealwrapperError(`Scenario snapshot does not exist: ${snapshotPath}; pass --update-snapshots to create it`, 2);
@@ -360,20 +363,20 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
   if (signKey) {
     signingKeyPath = resolve(projectRoot, signKey);
     if (!signingKeyPath.startsWith(`${resolve(projectRoot)}/`)) throw new SealwrapperError('--sign-key must be project-relative', 2);
-    if (!(await exists(signingKeyPath))) throw new SealwrapperError(`--sign-key does not exist: ${signKey}`, 2);
+    await assertSafeProjectFile(projectRoot, signingKeyPath, 'Release signing key');
   }
   // All irreversible release files remain in .seal until the archive,
   // checksum, provenance and optional signature have been produced.
-  const temporaryRoot = await mkdtemp(join(projectRoot, '.seal', 'release-'));
+  const temporaryRoot = await createSafeProjectTempDirectory(projectRoot, join(projectRoot, '.seal'), 'release-', 'Release temporary directory');
   try {
     const artifact = join(temporaryRoot, artifactName);
     const checksum = `${artifact}.sha256`;
     const provenance = `${artifact}.release.json`;
     await archiveSealpack(prepared.staged, artifact); // only after every selected real-core gate succeeds
     const digest = createHash('sha256').update(await readFile(artifact)).digest('hex');
-    await writeFile(checksum, `${digest}  ${artifactName}\n`, { mode: 0o644 });
+    await writeSafeProjectFile(projectRoot, checksum, `${digest}  ${artifactName}\n`, { mode: 0o644, label: 'Release checksum' });
     // Rendering validates a supplied private key before release/ is touched.
-    await writeFile(provenance, await renderReleaseProvenance({ projectRoot, artifact, config: prepared.config, targets: checkedTargets.map((checked) => checked.target), signingKeyPath, signingKeyId: signKeyId ?? undefined }), { mode: 0o644 });
+    await writeSafeProjectFile(projectRoot, provenance, await renderReleaseProvenance({ projectRoot, artifact, config: prepared.config, targets: checkedTargets.map((checked) => checked.target), signingKeyPath, signingKeyId: signKeyId ?? undefined }), { mode: 0o644, label: 'Release provenance' });
     const published = await publishReleaseFiles({ projectRoot, releaseDirectory: release, files: [
       { source: artifact, name: artifactName },
       { source: checksum, name: `${artifactName}.sha256` },
@@ -647,9 +650,7 @@ async function updateLock(projectRoot: string, options: CliOptions, allowDirty: 
   const targetMap = Object.fromEntries(selectedTargets.map((id) => [id, getTarget(id)]));
   const next = JSON.parse(renderSealLock(targetMap, selectedTargets, selectedTargets.includes(configuredDefault) ? configuredDefault : selectedTargets[0]));
   for (const line of describeLockDiff(existing, next)) output(options, line);
-  const temporary = `${lockPath}.tmp-${process.pid}`;
-  await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o644 });
-  await rename(temporary, lockPath);
+  await writeSafeProjectFile(projectRoot, lockPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o644, label: 'seal.lock' });
   output(options, `Updated seal.lock for target set: ${selectedTargets.join(', ')}`);
 }
 

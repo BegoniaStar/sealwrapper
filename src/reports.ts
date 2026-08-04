@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { resolveIdentities } from './identity.ts';
 import { rasterizeSvgToPng, type PngExporter } from './png.ts';
 import { renderHtml, renderSvg, type RenderOptions } from './renderer.ts';
+import { assertSafeProjectFile, assertSafeProjectOutputPath, ensureSafeProjectDirectory, writeSafeProjectFile } from './safe-path.ts';
 
 function safeReportName(value: string): string {
   if (!/^[A-Za-z0-9._-]+$/.test(value)) throw new Error(`Invalid scenario report name: ${value}`);
@@ -25,7 +25,7 @@ function assetToken(value: unknown, fallback: string): string {
 export async function writeScenarioReport({ projectRoot, name, transcript, offline = false, refreshIdentities = false, theme, style, showMembers, png = false, pngExporter = rasterizeSvgToPng }: { projectRoot: string; name: string; transcript: any; offline?: boolean; refreshIdentities?: boolean; png?: boolean; pngExporter?: PngExporter } & RenderOptions) {
   const reportName = safeReportName(name);
   const directory = join(projectRoot, '.seal', 'reports');
-  await mkdir(directory, { recursive: true });
+  await ensureSafeProjectDirectory(projectRoot, directory, { label: 'Scenario report directory' });
   const resolved = await resolveIdentities({ projectRoot, transcript, offline, refresh: refreshIdentities });
   const json = join(directory, `${reportName}.transcript.json`);
   const svg = join(directory, `${reportName}.svg`);
@@ -43,8 +43,8 @@ export async function writeScenarioReport({ projectRoot, name, transcript, offli
     if (!qq || !avatar || avatarFiles[qq]) continue;
     const extension = avatar[1] === 'image/jpeg' ? 'jpg' : avatar[1].slice('image/'.length);
     const relative = `${reportName}.avatars/${assetToken(qq, `avatar-${messageIndex + 1}`)}.${extension}`;
-    await mkdir(avatarDirectory, { recursive: true });
-    await writeFile(join(directory, relative), Buffer.from(avatar[2], 'base64'), { mode: 0o600 });
+    await ensureSafeProjectDirectory(projectRoot, avatarDirectory, { label: 'Scenario avatar directory' });
+    await writeSafeProjectFile(projectRoot, join(directory, relative), Buffer.from(avatar[2], 'base64'), { mode: 0o600, label: 'Scenario avatar' });
     avatarFiles[qq] = relative;
   }
   for (const message of messages) {
@@ -65,8 +65,8 @@ export async function writeScenarioReport({ projectRoot, name, transcript, offli
       let relative = `${base}.${extension}`;
       if (assetPaths.has(relative)) relative = `${base}-${messageIndex + 1}.${extension}`;
       assetPaths.add(relative);
-      await mkdir(assetDirectory, { recursive: true });
-      await writeFile(join(directory, relative), Buffer.from(image[2], 'base64'), { mode: 0o600 });
+      await ensureSafeProjectDirectory(projectRoot, assetDirectory, { label: 'Scenario asset directory' });
+      await writeSafeProjectFile(projectRoot, join(directory, relative), Buffer.from(image[2], 'base64'), { mode: 0o600, label: 'Scenario asset' });
       segment.assetPath = relative;
       delete segment.data;
       delete segment.dataUrl;
@@ -80,11 +80,15 @@ export async function writeScenarioReport({ projectRoot, name, transcript, offli
   const exportedTranscript = resolved.transcript;
   const svgMarkup = renderSvg(exportedTranscript, { theme, style, showMembers });
   await Promise.all([
-    writeFile(json, `${JSON.stringify(exportedTranscript, null, 2)}\n`, { mode: 0o600 }),
-    writeFile(svg, svgMarkup, { mode: 0o600 }),
-    writeFile(html, renderHtml(exportedTranscript, { theme, style, showMembers }), { mode: 0o600 }),
-    writeFile(identities, `${JSON.stringify({ identities: resolved.identities, avatarFiles, warnings: resolved.warnings, provider: resolved.provider }, null, 2)}\n`, { mode: 0o600 }),
+    writeSafeProjectFile(projectRoot, json, `${JSON.stringify(exportedTranscript, null, 2)}\n`, { mode: 0o600, label: 'Scenario transcript report' }),
+    writeSafeProjectFile(projectRoot, svg, svgMarkup, { mode: 0o600, label: 'Scenario SVG report' }),
+    writeSafeProjectFile(projectRoot, html, renderHtml(exportedTranscript, { theme, style, showMembers }), { mode: 0o600, label: 'Scenario HTML report' }),
+    writeSafeProjectFile(projectRoot, identities, `${JSON.stringify({ identities: resolved.identities, avatarFiles, warnings: resolved.warnings, provider: resolved.provider }, null, 2)}\n`, { mode: 0o600, label: 'Scenario identity report' }),
   ]);
-  if (pngPath) await pngExporter({ svg, png: pngPath });
+  if (pngPath) {
+    await assertSafeProjectOutputPath(projectRoot, pngPath, 'Scenario PNG report');
+    await pngExporter({ svg, png: pngPath });
+    await assertSafeProjectFile(projectRoot, pngPath, 'Scenario PNG report');
+  }
   return { json, svg, html, png: pngPath, identities, warnings: resolved.warnings };
 }

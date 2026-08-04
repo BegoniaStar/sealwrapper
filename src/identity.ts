@@ -1,5 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
+import { assertSafeProjectFile, ensureSafeProjectDirectory, writeSafeProjectFile } from './safe-path.ts';
 
 const cacheTTLMilliseconds = 7 * 24 * 60 * 60 * 1000;
 const requestTimeoutMilliseconds = 5_000;
@@ -58,9 +60,10 @@ function validateCacheEntry(value: unknown, expectedQq: string): CacheEntry | nu
   };
 }
 
-async function cacheEntry(directory: string, qq: string): Promise<CacheEntry | null> {
+async function cacheEntry(projectRoot: string, directory: string, qq: string): Promise<CacheEntry | null> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(directory, `${qq}.json`), 'utf8'));
+    const path = await assertSafeProjectFile(projectRoot, join(directory, `${qq}.json`), 'Identity cache entry');
+    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
     return validateCacheEntry(parsed, qq);
   } catch { return null; }
 }
@@ -155,7 +158,7 @@ function fallback(message: any, qq: string) {
 
 export async function resolveIdentities({ projectRoot, transcript, offline = false, refresh = false }: { projectRoot: string; transcript: any; offline?: boolean; refresh?: boolean }) {
   const cacheDirectory = join(projectRoot, '.seal', 'identity-cache');
-  await mkdir(cacheDirectory, { recursive: true });
+  await ensureSafeProjectDirectory(projectRoot, cacheDirectory, { label: 'Identity cache directory' });
   const result = clone(transcript);
   const warnings: string[] = [];
   const identities: Record<string, any> = {};
@@ -175,14 +178,14 @@ export async function resolveIdentities({ projectRoot, transcript, offline = fal
       entry = previous.entry;
       source = previous.source;
     } else {
-      entry = await cacheEntry(cacheDirectory, qq);
+      entry = await cacheEntry(projectRoot, cacheDirectory, qq);
       if (refresh || !fresh(entry)) {
         if (offline) {
           warnings.push(entry ? `offline identity cache is stale for QQ ${qq}` : `offline identity cache miss for QQ ${qq}`);
         } else {
           try {
             entry = await fetchPublicIdentity(qq);
-            await writeFile(join(cacheDirectory, `${qq}.json`), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+            await writeSafeProjectFile(projectRoot, join(cacheDirectory, `${qq}.json`), `${JSON.stringify(entry)}\n`, { mode: 0o600, label: 'Identity cache entry' });
             source = 'qq-public';
             if (!entry.avatarBase64) warnings.push(`QQ public avatar lookup unavailable for ${qq}`);
             if (!entry.nickname) warnings.push(`QQ public nickname lookup unavailable for ${qq}`);
