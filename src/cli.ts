@@ -352,14 +352,20 @@ function selectedScenario(file: string, scenario: any, selection: ScenarioSelect
   return selection.tags.every((tag) => scenario.tags.includes(tag));
 }
 
-async function prepareScenarios(projectRoot: string, files: readonly string[], selection: ScenarioSelection): Promise<PreparedScenario[]> {
+function validateScenarioSelection(selection: ScenarioSelection) {
+  if (selection.filter !== undefined && (selection.filter.length === 0 || selection.filter.length > 256 || /[\u0000-\u001f\u007f-\u009f]/u.test(selection.filter))) throw new SealwrapperError('--filter must be 1 to 256 printable characters', 2);
+  if (!selection.tags.every((tag) => scenarioTagPattern.test(tag))) throw new SealwrapperError('--tag must be a lowercase alphanumeric tag up to 64 characters', 2);
+  if (new Set(selection.tags).size !== selection.tags.length) throw new SealwrapperError('--tag must not be specified more than once with the same value', 2);
+}
+
+async function prepareScenarios(projectRoot: string, files: readonly string[], selection: ScenarioSelection, resolveArchives = true): Promise<PreparedScenario[]> {
   const root = await realpath(projectRoot).catch((error: any) => { throw new SealwrapperError(`Project root cannot be resolved: ${projectRoot}${error?.message ? ` (${error.message})` : ''}`, 3); });
   const prepared: PreparedScenario[] = [];
   for (const file of files) {
     const scenarioPath = await assertSafeProjectFile(root, file, 'Scenario file');
     const scenario = normalizeScenario(JSON.parse(await readFile(scenarioPath, 'utf8')));
     if (!selectedScenario(file, scenario, selection)) continue;
-    const archives = await Promise.all((scenario.packages ?? []).map((item: string) => resolveScenarioArchive(root, item)));
+    const archives = resolveArchives ? await Promise.all((scenario.packages ?? []).map((item: string) => resolveScenarioArchive(root, item))) : [];
     prepared.push({ file, scenario, archives });
   }
   if (prepared.length === 0) {
@@ -370,15 +376,22 @@ async function prepareScenarios(projectRoot: string, files: readonly string[], s
   return prepared;
 }
 
+async function listScenarios(projectRoot: string, options: CliOptions, selection: ScenarioSelection) {
+  validateScenarioSelection(selection);
+  const scenarios = await prepareScenarios(projectRoot, await scenarioFiles(projectRoot), selection, false);
+  for (const { file, scenario } of scenarios) {
+    const tags = scenario.tags.length ? scenario.tags.join(',') : '-';
+    output(options, `Scenario: ${relative(projectRoot, file).replaceAll('\\', '/')}\trelease=${scenario.release}\ttags=${tags}\ttitle=${scenario.title ?? ''}`);
+  }
+}
+
 async function scenarioTest(projectRoot: string, options: CliOptions, scenarioOptions: ScenarioOptions) {
   const { targetId, render, png, identity, theme, style, showMembers, snapshot: compareSnapshots, updateSnapshots, release: releaseOnly, offline, refreshIdentities, filter, tags, timeoutMs } = scenarioOptions;
   if (png && !render) throw new SealwrapperError('--png requires --render', 2);
   if (compareSnapshots && updateSnapshots) throw new SealwrapperError('--snapshot and --update-snapshots cannot be combined', 2);
   if (identity !== 'qq-public') throw new SealwrapperError('Only --identity qq-public is supported', 2);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw new SealwrapperError('--timeout-ms must be between 1 and 300000', 2);
-  if (filter !== undefined && (filter.length === 0 || filter.length > 256 || /[\u0000-\u001f\u007f-\u009f]/u.test(filter))) throw new SealwrapperError('--filter must be 1 to 256 printable characters', 2);
-  if (!tags.every((tag) => scenarioTagPattern.test(tag))) throw new SealwrapperError('--tag must be a lowercase alphanumeric tag up to 64 characters', 2);
-  if (new Set(tags).size !== tags.length) throw new SealwrapperError('--tag must not be specified more than once with the same value', 2);
+  validateScenarioSelection({ releaseOnly, filter, tags });
   const files = await scenarioFiles(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const selectedTargets = targetId ? [targetId] : configuredTargetIds(config);
@@ -712,12 +725,18 @@ function makeScenarioAction(options: CliOptions): CallbackAction {
   const snapshot = action.defineFlagParameter({ parameterLongName: '--snapshot', description: 'Compare each transcript with its snapshot.' });
   const updateSnapshots = action.defineFlagParameter({ parameterLongName: '--update-snapshots', description: 'Rewrite each transcript snapshot.' });
   const release = action.defineFlagParameter({ parameterLongName: '--release', description: 'Run only scenarios marked for release.' });
+  const list = action.defineFlagParameter({ parameterLongName: '--list', description: 'List selected scenarios without staging archives or accessing a managed core.' });
   const filter = action.defineStringParameter({ parameterLongName: '--filter', argumentName: 'TEXT', description: 'Run scenarios whose file name or title contains this literal text.' });
   const tag = action.defineStringListParameter({ parameterLongName: '--tag', argumentName: 'TAG', description: 'Require a scenario tag; repeat to require multiple tags.' });
-  const timeout = action.defineIntegerParameter({ parameterLongName: '--timeout-ms', argumentName: 'MILLISECONDS', description: 'Per bridge invocation timeout, from 1 to 300000 milliseconds.', defaultValue: 120_000 });
+  const timeout = action.defineIntegerParameter({ parameterLongName: '--timeout-ms', argumentName: 'MILLISECONDS', description: 'Per bridge invocation timeout, from 1 to 300000 milliseconds.' });
   const offline = action.defineFlagParameter({ parameterLongName: '--offline', description: 'Resolve report identities from the local cache only.' });
   const refreshIdentities = action.defineFlagParameter({ parameterLongName: '--refresh-identities', description: 'Refresh cached report identities when online.' });
   return action.setHandler(async () => {
+    if (list.value) {
+      if (target.value || render.value || png.value || members.value || snapshot.value || updateSnapshots.value || timeout.value !== undefined || offline.value || refreshIdentities.value) throw new SealwrapperError('--list only supports --release, --filter, and --tag', 2);
+      await listScenarios(options.cwd, options, { releaseOnly: release.value, filter: filter.value, tags: tag.values });
+      return;
+    }
     await withProgress(options.progress, 'Running scenarios', () => scenarioTest(options.cwd, options, {
       targetId: target.value,
       render: render.value,
@@ -731,7 +750,7 @@ function makeScenarioAction(options: CliOptions): CallbackAction {
       release: release.value,
       filter: filter.value,
       tags: tag.values,
-      timeoutMs: timeout.value,
+      timeoutMs: timeout.value ?? 120_000,
       offline: offline.value,
       refreshIdentities: refreshIdentities.value,
     }), 'Scenarios passed');

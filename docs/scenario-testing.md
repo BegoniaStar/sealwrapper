@@ -56,6 +56,7 @@ sealw scenario test
 ```sh
 sealw scenario test --filter permission
 sealw scenario test --tag release --tag network
+sealw scenario test --list --tag release
 sealw scenario test --timeout-ms 180000
 ```
 
@@ -63,6 +64,10 @@ sealw scenario test --timeout-ms 180000
 标签在场景顶层的 `tags` 数组中声明，使用最多 64 个字符的小写字母、数字、`.`、`_`、`-`，且
 不得重复。`--timeout-ms` 为每次 bridge 调用设置上限，范围为 1--300000，默认 120000；带
 `repeatable: true` 的随机断言会单独进行第二次、同样受限的调用。
+
+`--list` 使用 `--release`、`--filter`、`--tag` 的同一选择规则，打印文件、发布标记、标签和
+标题，但不创建 archive、不读取项目配置，也不访问 managed core。它不能与渲染、快照、目标或
+身份选项组合。
 
 ## 顶层字段
 

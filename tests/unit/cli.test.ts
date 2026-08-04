@@ -143,6 +143,13 @@ test('scenario filter and tags reject an empty selection before core access', as
     () => runCli(['scenario', 'test', '--tag', 'network'], { cwd: destination, write: () => {} }),
     /No scenario files match the requested selection/,
   );
+  const lines: string[] = [];
+  await runCli(['scenario', 'test', '--list', '--tag', 'smoke'], { cwd: destination, write: (line) => lines.push(line) });
+  assert.deepEqual(lines, ['Scenario: tests/scenarios/smoke.json\trelease=false\ttags=smoke\ttitle=Smoke']);
+  await assert.rejects(
+    () => runCli(['scenario', 'test', '--list', '--render'], { cwd: destination, write: () => {} }),
+    /--list only supports/,
+  );
 });
 
 test('scenario test rejects an additional sealpack symlink before it accesses a managed core', async (t) => {
