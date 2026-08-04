@@ -128,8 +128,10 @@ CI 必须使用与本地相同的锁定工具链，并允许首次 `core sync` �
 
 ```yaml
 steps:
-  - uses: actions/checkout@v4
-  - uses: jdx/mise-action@v2
+  # actions/checkout v4
+  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+  # jdx/mise-action v2
+  - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
     with:
       install: true
   - run: mise exec -- npm ci
@@ -158,5 +160,24 @@ mise exec -- npm ci
 mise exec -- npm run check
 ```
 
-`check` 会启用必须的 managed-core 集成测试。仅修改文档时，仍应至少运行 Markdown 链接检查
-和 `mise exec -- npm test`；完整 `check` 需要网络、Go 和较长的运行时间。
+`check` 会把必须的 managed-core 集成测试一并纳入覆盖率，验证实际 npm tarball 安装后的
+CLI，并校验工具发布用的 tarball、SHA-256、CycloneDX SBOM 和 release manifest 是否彼此一致。
+仅修改文档时，仍应至少运行 Markdown 链接检查和 `mise exec -- npm test`；完整 `check` 需要网络、Go
+和较长的运行时间。
+
+## 工具仓库发布
+
+工具自身通过推送与 `package.json` 版本一致的 `v<version>` tag 发布。`Release` workflow 会在
+Linux 上完整执行 `npm run check`，然后生成 npm tarball、SHA-256 checksum、CycloneDX SBOM 与
+`sealwrapper.tool-release/v1` manifest，并将它们一同附加到 GitHub Release。workflow 只使用完整
+commit SHA 固定第三方 Actions。
+
+私有仓库的 GitHub artifact attestation 需要 Enterprise Cloud。若仓库具备该能力，将
+`ENABLE_ARTIFACT_ATTESTATIONS` repository variable 设为 `true`，workflow 会额外对 tarball 与
+SBOM 生成 GitHub 签名 attestation；该功能未启用时，发布仍保留 checksum、SBOM 与源提交绑定。
+下载后先运行 `sha256sum -c sealwrapper-<version>.tgz.sha256`；启用 attestation 后再运行：
+
+```sh
+gh attestation verify sealwrapper-<version>.tgz \
+  -R BegoniaStar/sealwrapper
+```

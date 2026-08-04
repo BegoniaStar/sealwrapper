@@ -1,6 +1,8 @@
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import type { Plugin } from 'esbuild';
 
+import type { ProjectConfig } from './config.ts';
 import { SealwrapperError } from './errors.ts';
 
 /**
@@ -27,15 +29,15 @@ async function canonicalFile(path: string, root: string, label: string): Promise
   return resolved;
 }
 
-function boundaryPlugin(projectRoot: string) {
+function boundaryPlugin(projectRoot: string): Plugin {
   return {
     name: 'sealwrapper-project-boundary',
-    setup(build: any) {
+    setup(build) {
       // Reject an already-existing relative/absolute escape before esbuild's
       // resolver opens it.  The onLoad hook below remains the authoritative
       // check after extension and package resolution (for example `./dep`
       // becoming `./dep.ts`).
-      build.onResolve({ filter: /^(?:\.{0,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/ }, async (args: { path: string; resolveDir: string }) => {
+      build.onResolve({ filter: /^(?:\.{0,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/ }, async (args) => {
         const candidate = isAbsolute(args.path) ? args.path : resolve(args.resolveDir, args.path);
         let resolved: string;
         try {
@@ -50,7 +52,7 @@ function boundaryPlugin(projectRoot: string) {
       });
       // onLoad observes the final path chosen by esbuild, after extension,
       // package, tsconfig-path and symlink resolution have all happened.
-      build.onLoad({ filter: /.*/ }, async (args: { namespace: string; path: string }) => {
+      build.onLoad({ filter: /.*/ }, async (args) => {
         if (args.namespace !== 'file') return undefined;
         let resolved: string;
         try {
@@ -69,7 +71,7 @@ function boundaryPlugin(projectRoot: string) {
   };
 }
 
-export async function buildBundle(root: string, config: any): Promise<Buffer> {
+export async function buildBundle(root: string, config: ProjectConfig): Promise<Buffer> {
   if (!config.build || !config.sealpack.contents.scripts) throw new SealwrapperError('This project does not declare a JS bundle');
   let projectRoot: string;
   try {
@@ -80,13 +82,13 @@ export async function buildBundle(root: string, config: any): Promise<Buffer> {
   const entryPath = resolve(projectRoot, config.build.entry);
   if (!isWithin(projectRoot, entryPath)) throw new SealwrapperError(`build.entry resolves outside the project root: ${config.build.entry}`);
   const entry = await canonicalFile(entryPath, projectRoot, `build.entry ${config.build.entry}`);
-  let esbuild: any;
+  let esbuild: typeof import('esbuild');
   try {
     esbuild = await import('esbuild');
   } catch {
     throw new SealwrapperError('JS bundles require the locked esbuild dependency; run npm ci', 3);
   }
-  let result: any;
+  let result: import('esbuild').BuildResult;
   try {
     result = await esbuild.build({
       absWorkingDir: projectRoot,
@@ -109,7 +111,7 @@ export async function buildBundle(root: string, config: any): Promise<Buffer> {
     if (/project boundary violation|outside the project root/i.test(message)) throw new SealwrapperError(message);
     throw error;
   }
-  const output = result.outputFiles?.find((file: any) => file.path.endsWith('.js')) ?? result.outputFiles?.[0];
+  const output = result.outputFiles?.find((file) => file.path.endsWith('.js')) ?? result.outputFiles?.[0];
   if (!output) throw new SealwrapperError('esbuild did not produce a JavaScript bundle', 3);
   const header = [
     '// ==UserScript==',

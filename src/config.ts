@@ -12,16 +12,31 @@ const packageIdPattern = /^[\p{L}\p{N}_-]{1,64}\/[\p{L}\p{N}_-]{1,64}$/u;
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const controlCharacterPattern = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
-function isRecord(value: unknown): value is Record<string, any> {
+type JsonRecord = Record<string, unknown>;
+
+export type TargetSelection = { buildTarget: string[]; defaultTarget: string };
+export type PackageMetadata = { name: string; version: string; authors: string[]; license: string; description: string; homepage: string };
+export type BuildConfig = { entry: string; ecmaTarget: string; bundleFileName: string };
+export type ScriptContent = { bundle: true; path: string };
+export type ResourceContent = { source: string };
+export type SealpackContents = { scripts?: ScriptContent; decks?: ResourceContent; reply?: ResourceContent; helpdoc?: ResourceContent; templates?: ResourceContent };
+export type SealpackPermissions = { network: boolean; networkHosts: string[]; acknowledgeUnrestrictedNetwork: boolean; fileRead: string[]; fileWrite: string[]; dangerous: boolean; httpServer: boolean; ipc: string[] };
+export type StoreAssets = { category: string; icon: string; banner: string; screenshots: string[] };
+export type ArtifactPolicy = { forbiddenPaths: string[]; forbiddenExtensions: string[] };
+export type ReleaseConfig = { directory: string; checksum: 'sha256'; artifactPolicy: ArtifactPolicy };
+export type SealpackConfig = { packageId: string; minSealDice: string; contents: SealpackContents; dependencies: Record<string, string>; permissions: SealpackPermissions; readme: 'README.md'; assets: string[]; store: StoreAssets };
+export type ProjectConfig = { $schema?: string; schemaVersion: 2; package: PackageMetadata; build?: BuildConfig; sealDice: TargetSelection; release: ReleaseConfig; sealpack: SealpackConfig };
+
+function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function record(value: unknown, label: string): Record<string, any> {
+function record(value: unknown, label: string): JsonRecord {
   invariant(isRecord(value), `${label} must be an object`);
   return value;
 }
 
-function array(value: unknown, label: string): any[] {
+function array(value: unknown, label: string): unknown[] {
   invariant(Array.isArray(value), `${label} must be an array`);
   return value;
 }
@@ -43,7 +58,7 @@ function boolean(value: unknown, label: string): boolean {
 }
 
 /** Keep the v2 manifest closed so every accepted field has one owner. */
-function onlyKeys(value: Record<string, any>, label: string, allowed: readonly string[]) {
+function onlyKeys(value: JsonRecord, label: string, allowed: readonly string[]) {
   for (const key of Object.keys(value)) invariant(allowed.includes(key), `${label}.${key} is unsupported`);
 }
 
@@ -56,7 +71,7 @@ export function safeProjectPath(value: unknown, label: string, prefix?: string):
   return path;
 }
 
-function verifyMetadata(config: Record<string, any>) {
+function verifyMetadata(config: JsonRecord) {
   const metadata = record(config.package, 'package');
   onlyKeys(metadata, 'package', ['name', 'version', 'authors', 'license', 'description', 'homepage']);
   string(metadata.name, 'package.name');
@@ -71,9 +86,7 @@ function verifyMetadata(config: Record<string, any>) {
   string(metadata.homepage, 'package.homepage', true);
 }
 
-export type TargetSelection = { buildTarget: string[]; defaultTarget: string };
-
-function verifyBuildTargets(config: Record<string, any>, registry: Readonly<Record<string, TargetDescriptor>>): TargetSelection {
+function verifyBuildTargets(config: JsonRecord, registry: Readonly<Record<string, TargetDescriptor>>): TargetSelection {
   const sealDice = record(config.sealDice, 'sealDice');
   onlyKeys(sealDice, 'sealDice', ['buildTarget', 'defaultTarget']);
   const buildTarget = strings(sealDice.buildTarget, 'sealDice.buildTarget');
@@ -88,7 +101,7 @@ function verifyBuildTargets(config: Record<string, any>, registry: Readonly<Reco
   return { buildTarget, defaultTarget };
 }
 
-function verifyBuild(config: Record<string, any>, contents: Record<string, any>) {
+function verifyBuild(config: JsonRecord, contents: JsonRecord) {
   const scripts = contents.scripts;
   if (scripts === undefined) {
     invariant(config.build === undefined, 'build requires sealpack.contents.scripts');
@@ -103,12 +116,12 @@ function verifyBuild(config: Record<string, any>, contents: Record<string, any>)
   onlyKeys(build, 'build', ['entry', 'ecmaTarget', 'bundleFileName']);
   const entry = safeProjectPath(build.entry, 'build.entry', 'src');
   invariant(/\.(?:ts|mts|cts|js|mjs|cjs)$/.test(entry), 'build.entry must be a JS or TS source file');
-  string(build.bundleFileName, 'build.bundleFileName');
-  invariant(posix.basename(build.bundleFileName) === build.bundleFileName && build.bundleFileName === bundlePath.slice('scripts/'.length), 'build.bundleFileName must equal the scripts/ bundle file name');
+  const bundleFileName = string(build.bundleFileName, 'build.bundleFileName');
+  invariant(posix.basename(bundleFileName) === bundleFileName && bundleFileName === bundlePath.slice('scripts/'.length), 'build.bundleFileName must equal the scripts/ bundle file name');
   string(build.ecmaTarget, 'build.ecmaTarget');
 }
 
-function verifySealpack(config: Record<string, any>, selection: TargetSelection) {
+function verifySealpack(config: JsonRecord, selection: TargetSelection) {
   const sealpack = record(config.sealpack, 'sealpack');
   onlyKeys(sealpack, 'sealpack', ['packageId', 'minSealDice', 'contents', 'dependencies', 'permissions', 'readme', 'assets', 'store']);
   const packageId = string(sealpack.packageId, 'sealpack.packageId');
@@ -129,12 +142,15 @@ function verifySealpack(config: Record<string, any>, selection: TargetSelection)
 
   const permissions = record(sealpack.permissions, 'sealpack.permissions');
   onlyKeys(permissions, 'sealpack.permissions', ['network', 'networkHosts', 'acknowledgeUnrestrictedNetwork', 'fileRead', 'fileWrite', 'dangerous', 'httpServer', 'ipc']);
-  for (const name of ['network', 'acknowledgeUnrestrictedNetwork', 'dangerous', 'httpServer']) boolean(permissions[name], `sealpack.permissions.${name}`);
-  for (const name of ['networkHosts', 'fileRead', 'fileWrite', 'ipc']) strings(permissions[name], `sealpack.permissions.${name}`);
-  if (!permissions.network) {
-    invariant(permissions.networkHosts.length === 0 && !permissions.acknowledgeUnrestrictedNetwork, 'networkHosts and acknowledgeUnrestrictedNetwork require network: true');
+  const network = boolean(permissions.network, 'sealpack.permissions.network');
+  const networkHosts = strings(permissions.networkHosts, 'sealpack.permissions.networkHosts');
+  const acknowledgeUnrestrictedNetwork = boolean(permissions.acknowledgeUnrestrictedNetwork, 'sealpack.permissions.acknowledgeUnrestrictedNetwork');
+  for (const name of ['dangerous', 'httpServer']) boolean(permissions[name], `sealpack.permissions.${name}`);
+  for (const name of ['fileRead', 'fileWrite', 'ipc']) strings(permissions[name], `sealpack.permissions.${name}`);
+  if (!network) {
+    invariant(networkHosts.length === 0 && !acknowledgeUnrestrictedNetwork, 'networkHosts and acknowledgeUnrestrictedNetwork require network: true');
   }
-  if (permissions.network && permissions.networkHosts.length === 0) invariant(permissions.acknowledgeUnrestrictedNetwork, 'unrestricted network requires acknowledgeUnrestrictedNetwork: true');
+  if (network && networkHosts.length === 0) invariant(acknowledgeUnrestrictedNetwork, 'unrestricted network requires acknowledgeUnrestrictedNetwork: true');
 
   invariant(sealpack.readme === 'README.md', 'sealpack.readme must be README.md');
   for (const asset of array(sealpack.assets, 'sealpack.assets')) safeProjectPath(asset, 'sealpack.assets entry', 'assets');
@@ -160,7 +176,7 @@ function verifySealpack(config: Record<string, any>, selection: TargetSelection)
   }
 }
 
-function verifyRelease(config: Record<string, any>) {
+function verifyRelease(config: JsonRecord) {
   const release = record(config.release, 'release');
   onlyKeys(release, 'release', ['directory', 'checksum', 'artifactPolicy']);
   safeProjectPath(release.directory, 'release.directory');
@@ -170,7 +186,8 @@ function verifyRelease(config: Record<string, any>) {
   for (const name of ['forbiddenPaths', 'forbiddenExtensions']) strings(policy[name], `release.artifactPolicy.${name}`);
 }
 
-export function validateProjectConfig(raw: unknown, registry: Readonly<Record<string, TargetDescriptor>> = targetRegistry): any {
+/** Parse and validate the closed schema before exposing a typed project contract. */
+export function validateProjectConfig(raw: unknown, registry: Readonly<Record<string, TargetDescriptor>> = targetRegistry): ProjectConfig {
   const config = record(raw, 'seal.config.json');
   onlyKeys(config, 'seal.config.json', ['$schema', 'schemaVersion', 'package', 'build', 'sealDice', 'release', 'sealpack']);
   if (config.$schema !== undefined) string(config.$schema, 'seal.config.json.$schema');
@@ -179,16 +196,16 @@ export function validateProjectConfig(raw: unknown, registry: Readonly<Record<st
   const selection = verifyBuildTargets(config, registry);
   verifyRelease(config);
   verifySealpack(config, selection);
-  return config;
+  return config as ProjectConfig;
 }
 
 /** Return the target IDs selected by the project build matrix. */
-export function configuredTargetIds(config: Record<string, any>): string[] {
+export function configuredTargetIds(config: ProjectConfig): string[] {
   return sortTargetIds(config.sealDice.buildTarget);
 }
 
 /** Return the target used when a command needs one default target. */
-export function configuredDefaultTarget(config: Record<string, any>): string {
+export function configuredDefaultTarget(config: ProjectConfig): string {
   return config.sealDice.defaultTarget;
 }
 
@@ -197,7 +214,7 @@ export function sortTargetIds(ids: readonly string[]): string[] {
   return [...ids].sort(compareTargetIds);
 }
 
-export async function loadProjectConfig(root: string): Promise<any> {
+export async function loadProjectConfig(root: string): Promise<ProjectConfig> {
   let raw: unknown;
   try {
     raw = JSON.parse(await readFile(`${root}/seal.config.json`, 'utf8'));

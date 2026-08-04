@@ -27,6 +27,13 @@ user-supplied core checkout, or bundle the SealDice core, bridge, or validator.
 - Publishes a deterministic archive with SHA-256 checksum, provenance, and an
   optional Ed25519 provenance signature.
 
+## Supported Platforms
+
+Linux on a POSIX shell is the only supported execution environment and the
+only platform covered by CI. macOS may work when its local toolchain is made
+compatible, but it is not a supported or tested target. Windows is unsupported:
+the installed `sealw` launcher is intentionally a POSIX shell script.
+
 ## Requirements
 
 This repository pins its developer toolchain in [`.mise.toml`](.mise.toml):
@@ -146,8 +153,9 @@ mise exec -- npm ci
 mise exec -- npm run check
 ```
 
-`check` builds the CLI, lints source, enforces unit-test coverage, runs the Go
-API scanner, requires managed-core integration coverage, and runs all examples.
+`check` builds the CLI, lints source, measures unit and managed-core
+integration coverage together, runs the Go API scanner, smoke-tests the packed
+npm installation, and runs all examples.
 CI additionally installs Noto CJK fonts and `rsvg-convert` for reproducible
 offline PNG reports.
 

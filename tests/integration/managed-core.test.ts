@@ -92,7 +92,7 @@ test('managed exact core performs strict validation and real install-enable-relo
   await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
   const denied = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
   assert.equal(denied.ok, false);
-  assert.ok(denied.diagnostics.some((item: any) => item.ruleId === 'bridge.sandbox-permission'));
+  assert.ok((denied.diagnostics ?? []).some((item) => item.ruleId === 'bridge.sandbox-permission'));
   await writeFile(join(root, 'seal.config.json'), `${JSON.stringify(config(), null, 2)}\n`);
   await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
   const deckFormats = [
@@ -107,13 +107,13 @@ test('managed exact core performs strict validation and real install-enable-relo
     const invalidDeckStage = await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' });
     await archiveSealpack(invalidDeckStage, archive);
     const invalidDeckResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
-    assert.ok(invalidDeckResult.diagnostics.some((item: any) => item.path === `decks/${name}` && item.ruleId === 'deck.parse'));
+    assert.ok((invalidDeckResult.diagnostics ?? []).some((item) => item.path === `decks/${name}` && item.ruleId === 'deck.parse'));
     await writeFile(join(root, 'content', 'decks', name), validDeck);
   }
   await writeFile(join(root, 'content', 'decks', 'cards.json'), '{"helpdoc":{"not":"a deck"}}\n');
   await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
   const semanticDeckResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
-  assert.ok(semanticDeckResult.diagnostics.some((item: any) => item.path === 'decks/cards.json' && item.ruleId === 'deck.parse'));
+  assert.ok((semanticDeckResult.diagnostics ?? []).some((item) => item.path === 'decks/cards.json' && item.ruleId === 'deck.parse'));
   await writeFile(join(root, 'content', 'decks', 'cards.json'), '{"fortune":["yes"]}\n');
   await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
   const compressionBomb = join(root, '.seal', 'compression-bomb.sealpack');
@@ -122,7 +122,7 @@ test('managed exact core performs strict validation and real install-enable-relo
   await archiveSealpack({ files: [{ path: 'info.toml', data: Buffer.from('format_version = "1.0.0"\n') }, { path: 'assets/repeated.txt', data: Buffer.alloc(1024 * 1024, 0) }] }, compressionBomb, { compressionRatio: 100_000 });
   const bombResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive: compressionBomb });
   assert.equal(bombResult.ok, false);
-  assert.ok(bombResult.diagnostics.some((item: any) => item.ruleId === 'archive.limits' && /compression ratio/.test(item.message)));
+  assert.ok((bombResult.diagnostics ?? []).some((item) => item.ruleId === 'archive.limits' && /compression ratio/.test(item.message)));
   const smoke = await invokeBridge({ worktree: verified.worktree, target, operation: 'smoke', archive });
   assert.deepEqual(smoke.install?.installed, true);
 
@@ -162,7 +162,7 @@ test('managed exact core performs strict validation and real install-enable-relo
   await archiveSealpack(invalid, archive);
   const invalidResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
   assert.equal(invalidResult.ok, false);
-  assert.equal(invalidResult.diagnostics[0].ruleId, 'reply.unknown-cond-type');
+  assert.equal(invalidResult.diagnostics?.[0]?.ruleId, 'reply.unknown-cond-type');
 
   const replyCases = [
     ['missing-cond-type', 'enable: true\nitems:\n  - enable: true\n    conditions:\n      - value: hello\n    results: []\n', 'reply.missing-cond-type', 'error'],
@@ -177,7 +177,7 @@ test('managed exact core performs strict validation and real install-enable-relo
     await writeFile(join(root, 'content', 'reply', 'hello.yaml'), contents);
     await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
     const result = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
-    assert.ok(result.diagnostics.some((item: any) => item.ruleId === ruleId && item.severity === severity), name);
+    assert.ok((result.diagnostics ?? []).some((item) => item.ruleId === ruleId && item.severity === severity), name);
     assert.equal(result.ok, severity === 'warning', name);
   }
 
@@ -187,21 +187,21 @@ test('managed exact core performs strict validation and real install-enable-relo
   await archiveSealpack(invalidTemplate, archive);
   const invalidTemplateResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
   assert.equal(invalidTemplateResult.ok, false);
-  assert.ok(invalidTemplateResult.diagnostics.some((item: any) => item.ruleId === 'template.parse'));
+  assert.ok((invalidTemplateResult.diagnostics ?? []).some((item) => item.ruleId === 'template.parse'));
   await writeFile(join(root, 'content', 'templates', 'invalid.yaml'), 'name: valid-again\nversion: 1.0.0\nattrs: {}\n');
   await writeFile(join(root, 'content', 'helpdoc', 'bad.json'), '{"mod":\n');
   const invalidHelpdoc = await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' });
   await archiveSealpack(invalidHelpdoc, archive);
   const invalidHelpdocResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
   assert.equal(invalidHelpdocResult.ok, false);
-  assert.ok(invalidHelpdocResult.diagnostics.some((item: any) => item.ruleId === 'helpdoc.json'));
+  assert.ok((invalidHelpdocResult.diagnostics ?? []).some((item) => item.ruleId === 'helpdoc.json'));
   await writeFile(join(root, 'content', 'helpdoc', 'bad.json'), '{"mod":"Valid","helpdoc":{"ok":"yes"}}\n');
   await writeFile(join(root, 'content', 'helpdoc', 'bad.xlsx'), await helpdocXlsx(['Wrong', 'Synonym', 'Content']));
   const invalidXlsx = await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' });
   await archiveSealpack(invalidXlsx, archive);
   const invalidXlsxResult = await invokeBridge({ worktree: verified.worktree, target, operation: 'check', archive });
   assert.equal(invalidXlsxResult.ok, false);
-  assert.ok(invalidXlsxResult.diagnostics.some((item: any) => item.ruleId === 'helpdoc.xlsx-header'));
+  assert.ok((invalidXlsxResult.diagnostics ?? []).some((item) => item.ruleId === 'helpdoc.xlsx-header'));
   await writeFile(join(root, 'content', 'helpdoc', 'bad.xlsx'), await helpdocXlsx(['Key', 'Synonym', 'Content', 'Description', 'Catalogue', 'Tag']));
 
   const secondRoot = await mkdtemp(join(tmpdir(), 'sealwrapper-second-package-'));
@@ -221,19 +221,20 @@ test('managed exact core performs strict validation and real install-enable-relo
   await archiveSealpack(valid, archive);
   const scenario = await invokeBridge({ worktree: verified.worktree, target, operation: 'scenario', archive, archives: [secondArchive], scenario: { title: 'P2', clock: '2026-08-01T00:00:00.000Z', seed: 7, variables: { '$mHP': 10 }, conversation: { kind: 'group', id: 'QQ-Group:p2', name: 'P2' }, messages: [{ sequence: 1, qq: '10001', text: 'hello', user: { nickname: '甲', role: 'admin', variables: { '$mMP': 5 } } }, { sequence: 2, qq: '10002', text: 'no-output', scope: 'private', user: { nickname: '乙' } }] } });
   assert.equal(scenario.ok, true);
-  assert.equal(scenario.install.packages.length, 2);
-  assert.ok(scenario.diagnostics.some((item: any) => item.ruleId === 'template.name-conflict'));
-  assert.ok(scenario.diagnostics.some((item: any) => item.ruleId === 'decks.path-conflict'));
-  assert.ok(scenario.diagnostics.some((item: any) => item.ruleId === 'reply.path-conflict'));
-  assert.equal(scenario.transcript.messages.find((item: any) => item.qq === '10001').role, 'admin');
-  assert.equal(scenario.transcript.messages.find((item: any) => item.qq === '10002').scope, 'private');
-  assert.ok(scenario.transcript.messages.some((item: any) => item.direction === 'out' && item.timestamp.startsWith('2026-08-01T00:00:')));
+  assert.equal(scenario.install?.packages?.length, 2);
+  assert.ok((scenario.diagnostics ?? []).some((item) => item.ruleId === 'template.name-conflict'));
+  assert.ok((scenario.diagnostics ?? []).some((item) => item.ruleId === 'decks.path-conflict'));
+  assert.ok((scenario.diagnostics ?? []).some((item) => item.ruleId === 'reply.path-conflict'));
+  const scenarioMessages = scenario.transcript?.messages ?? [];
+  assert.equal(scenarioMessages.find((item) => item.qq === '10001')?.role, 'admin');
+  assert.equal(scenarioMessages.find((item) => item.qq === '10002')?.scope, 'private');
+  assert.ok(scenarioMessages.some((item) => item.direction === 'out' && item.timestamp?.startsWith('2026-08-01T00:00:')));
 
   await writeFile(join(root, 'content', 'reply', 'variables.yaml'), 'enable: true\nitems:\n  - enable: true\n    conditions:\n      - condType: exprTrue\n        value: "$mHP == 10"\n    results:\n      - resultType: replyToSender\n        delay: 0\n        message:\n          - [expr-ok, 1]\n');
   await archiveSealpack(await stageSealpack({ root, config: await loadProjectConfig(root), target: '1.6.0' }), archive);
   const expressionScenario = await invokeBridge({ worktree: verified.worktree, target, operation: 'scenario', archive, scenario: { title: 'expr', clock: '2026-08-01T00:00:00.000Z', variables: { '$mHP': 10 }, messages: [{ sequence: 1, qq: '10001', text: 'expression' }] } });
   assert.equal(expressionScenario.ok, true);
-  assert.ok(expressionScenario.transcript.messages.some((item: any) => item.direction === 'out' && item.text === 'expr-ok'));
+  assert.ok((expressionScenario.transcript?.messages ?? []).some((item) => item.direction === 'out' && item.text === 'expr-ok'));
   await writeFile(join(root, 'content', 'reply', 'variables.yaml'), 'enable: true\nitems: []\n');
 
   await writeFile(join(root, 'content', 'reply', 'hello.yaml'), 'enable: true\nitems:\n  - enable: true\n    conditions:\n      - condType: textMatch\n        matchType: matchExact\n        value: timeline\n    results:\n      - resultType: replyToSender\n        delay: 0\n        message:\n          - ["first#{SPLIT}second", 1]\n');
@@ -249,7 +250,7 @@ test('managed exact core performs strict validation and real install-enable-relo
     ],
   } });
   assert.equal(timelineScenario.ok, true, JSON.stringify(timelineScenario.diagnostics));
-  assert.deepEqual(timelineScenario.transcript.messages.map((item: any) => [item.transcriptSequence, item.direction, item.inReplyToSequence ?? null, item.text]), [
+  assert.deepEqual((timelineScenario.transcript?.messages ?? []).map((item) => [item.transcriptSequence, item.direction, item.inReplyToSequence ?? null, item.text]), [
     [1, 'in', null, 'timeline'], [2, 'out', 1, 'first'], [3, 'out', 1, 'second'],
     [4, 'in', null, 'timeline'],
     [5, 'in', null, 'timeline'], [6, 'out', 3, 'first'], [7, 'out', 3, 'second'],

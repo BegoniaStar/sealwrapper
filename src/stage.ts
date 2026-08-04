@@ -2,7 +2,7 @@ import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, posix, relative, resolve } from 'node:path';
 
 import { buildBundle } from './build.ts';
-import { configuredTargetIds } from './config.ts';
+import { configuredTargetIds, type ProjectConfig, type SealpackContents } from './config.ts';
 import { invariant, SealwrapperError } from './errors.ts';
 
 export type StagedFile = { path: string; data: Buffer };
@@ -70,15 +70,18 @@ async function collectRegularFiles(root: string, source: string, archiveRoot: st
   await visit(source);
 }
 
-function manifestFor(config: any, staged: Map<string, Buffer>): string {
+function manifestFor(config: ProjectConfig, staged: Map<string, Buffer>): string {
   const contents = config.sealpack.contents;
-  const patterns = (name: string) => {
+  const patterns = (name: keyof SealpackContents) => {
     if (!(name in contents)) return [];
     // A JS bundle is a single generated file with an author-declared archive
     // path. Keep its manifest entry exact so the package cannot accidentally
     // opt into future files below scripts/. Resource roots deliberately use a
     // target-core glob because they are recursively discovered collections.
-    if (name === 'scripts') return staged.has(contents.scripts.path) ? [contents.scripts.path] : [];
+    if (name === 'scripts') {
+      const script = contents.scripts;
+      return script && staged.has(script.path) ? [script.path] : [];
+    }
     return [...staged.keys()].some((file) => file.startsWith(`${name}/`)) ? [`${name}/**`] : [];
   };
   const permission = config.sealpack.permissions;
@@ -96,13 +99,13 @@ function manifestFor(config: any, staged: Map<string, Buffer>): string {
   ];
   for (const [id, range] of Object.entries(config.sealpack.dependencies).sort(([a], [b]) => compareArchivePath(a, b))) lines.push(`${tomlString(id)} = ${tomlString(range as string)}`);
   lines.push('', '[permissions]', `network = ${permission.network}`, `network_hosts = ${tomlArray(permission.networkHosts)}`, `file_read = ${tomlArray(permission.fileRead)}`, `file_write = ${tomlArray(permission.fileWrite)}`, `dangerous = ${permission.dangerous}`, `http_server = ${permission.httpServer}`, `ipc = ${tomlArray(permission.ipc)}`, '', '[contents]');
-  for (const name of ['scripts', 'decks', 'reply', 'helpdoc', 'templates']) lines.push(`${name} = ${tomlArray(patterns(name))}`);
+  for (const name of ['scripts', 'decks', 'reply', 'helpdoc', 'templates'] as const) lines.push(`${name} = ${tomlArray(patterns(name))}`);
   const store = config.sealpack.store;
   lines.push('', '[store]', `readme = ${tomlString(config.sealpack.readme)}`, `icon = ${tomlString(store.icon)}`, `banner = ${tomlString(store.banner)}`, `screenshots = ${tomlArray(store.screenshots)}`, `category = ${tomlString(store.category)}`, '', '[config]', '');
   return lines.join('\n');
 }
 
-export async function stageSealpack({ root, config, target }: { root: string; config: any; target?: string }): Promise<StagedSealpack> {
+export async function stageSealpack({ root, config, target }: { root: string; config: ProjectConfig; target?: string }): Promise<StagedSealpack> {
   if (target !== undefined) invariant(configuredTargetIds(config).includes(target), `Target ${target} is not selected by sealDice.buildTarget`);
   if (await exists(join(root, 'package.json')) && !(await exists(join(root, 'package-lock.json')))) throw new SealwrapperError('package.json requires a committed package-lock.json');
   const files = new Map<string, Buffer>();
@@ -114,7 +117,7 @@ export async function stageSealpack({ root, config, target }: { root: string; co
 
   const contents = config.sealpack.contents;
   if (contents.scripts) files.set(contents.scripts.path, await buildBundle(root, config));
-  for (const kind of ['decks', 'reply', 'helpdoc', 'templates']) {
+  for (const kind of ['decks', 'reply', 'helpdoc', 'templates'] as const) {
     if (!contents[kind]) continue;
     const before = files.size;
     await collectRegularFiles(root, join(root, 'content', kind), kind, files, true);

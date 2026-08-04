@@ -7,6 +7,7 @@ const cacheTTLMilliseconds = 7 * 24 * 60 * 60 * 1000;
 const requestTimeoutMilliseconds = 5_000;
 const requestSpacingMilliseconds = 250;
 const maxAvatarBytes = 2 * 1024 * 1024;
+const maxPortraitBytes = 256 * 1024;
 const maxNicknameCharacters = 512;
 const qqPattern = /^[1-9]\d{4,11}$/;
 const avatarContentTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -82,6 +83,38 @@ function charsetFrom(contentType: string | null): string {
   return contentType?.match(/(?:^|;)\s*charset\s*=\s*([^;\s]+)/i)?.[1]?.replaceAll('"', '').toLowerCase() ?? '';
 }
 
+/** Limit every network body while it is being read. Content-Length is advisory;
+ * a streamed byte count remains authoritative when a server omits or lies about it. */
+export async function limitedResponseBytes(response: Response, maximum: number, label: string): Promise<Uint8Array> {
+  const declared = response.headers.get('content-length');
+  if (declared && /^\d+$/u.test(declared) && Number(declared) > maximum) throw new Error(`${label} exceeds ${maximum} byte limit`);
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      length += next.value.byteLength;
+      if (length > maximum) {
+        await reader.cancel().catch(() => {});
+        throw new Error(`${label} exceeds ${maximum} byte limit`);
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
 /**
  * QQ's portrait endpoint has historically returned GBK/GB18030 bytes, even
  * when an intermediary omits or mislabels the charset.  `Response.text()`
@@ -92,7 +125,7 @@ function charsetFrom(contentType: string | null): string {
 async function responsePortraitText(url: string): Promise<string> {
   const response = await fetch(url, { signal: AbortSignal.timeout(requestTimeoutMilliseconds), headers: { accept: 'text/plain, application/json' } });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await limitedResponseBytes(response, maxPortraitBytes, 'QQ portrait response');
   const charset = charsetFrom(response.headers.get('content-type'));
   const utf8 = new TextDecoder('utf-8').decode(bytes);
   if (/^(?:gbk|gb2312|gb18030|gb_?18030)$/i.test(charset) || utf8.includes('\ufffd')) return new TextDecoder('gb18030').decode(bytes);
@@ -104,7 +137,7 @@ async function responseAvatar(url: string): Promise<{ contentType: string; base6
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '';
   if (!avatarContentTypes.has(contentType)) throw new Error(`unexpected avatar content type ${contentType || 'missing'}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
+  const bytes = Buffer.from(await limitedResponseBytes(response, maxAvatarBytes, 'QQ avatar response'));
   if (bytes.length === 0 || bytes.length > maxAvatarBytes) throw new Error('avatar response size is invalid');
   return { contentType, base64: bytes.toString('base64') };
 }

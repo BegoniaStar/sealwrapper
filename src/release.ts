@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 
 import { SealwrapperError } from './errors.ts';
+import type { ProjectConfig } from './config.ts';
 import { loadSealLock, lockedTarget, overlayDigest, type LockedTarget } from './lock.ts';
 import { compareTargetIds, type TargetDescriptor } from './pinned-target.ts';
 import { verifyTargetTrust } from './trust.ts';
@@ -134,6 +135,14 @@ async function lockBinding(projectRoot: string, targets: readonly TargetDescript
     defaultTarget: lock.defaultTarget,
   };
 }
+
+async function releaseSignature(manifest: any, signingKeyPath?: string, signingKeyId?: string) {
+  if (!signingKeyPath) return undefined;
+  const privateKey = createPrivateKey(await readFile(signingKeyPath));
+  const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).toString('base64');
+  return { algorithm: 'ed25519', keyId: signingKeyId || 'local-ed25519', publicKey, value: sign(null, Buffer.from(stable(manifest), 'utf8'), privateKey).toString('base64') };
+}
+
 async function optionalDigest(path: string): Promise<string | null> {
   try { return `sha256:${createHash('sha256').update(await readFile(path)).digest('hex')}`; }
   catch (error: any) { if (error?.code === 'ENOENT') return null; throw error; }
@@ -153,14 +162,6 @@ async function releaseInputs(projectRoot: string, targets: readonly TargetDescri
       go: [...new Set(targets.map((target) => target.testOverlay.goVersion))].sort(),
     },
   };
-}
-
-
-async function releaseSignature(manifest: any, signingKeyPath?: string, signingKeyId?: string) {
-  if (!signingKeyPath) return undefined;
-  const privateKey = createPrivateKey(await readFile(signingKeyPath));
-  const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).toString('base64');
-  return { algorithm: 'ed25519', keyId: signingKeyId || 'local-ed25519', publicKey, value: sign(null, Buffer.from(stable(manifest), 'utf8'), privateKey).toString('base64') };
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -221,11 +222,11 @@ export async function verifyReleaseBundle({ artifact, provenance, trustedKeyPath
  * deliberately parses the private key here: a malformed signing key cannot
  * leave a newly-created archive or checksum behind.
  */
-export async function renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string; gates?: ReleaseGateSummary }): Promise<Buffer> {
+export async function renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates }: { projectRoot: string; artifact: string; config: ProjectConfig; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string; gates?: ReleaseGateSummary }): Promise<Buffer> {
   const selectedTargets = normalizeTargets({ target, targets });
   const lock = await lockBinding(projectRoot, selectedTargets);
-  const archive = await readFile(artifact);
   const inputs = await releaseInputs(projectRoot, selectedTargets);
+  const archive = await readFile(artifact);
   const selectedIds = selectedTargets.map(targetId);
   const configuredDefault = config.sealDice?.defaultTarget;
   const matrixDefault = typeof configuredDefault === 'string' && selectedIds.includes(configuredDefault) ? configuredDefault : selectedIds[0];
@@ -313,7 +314,7 @@ export async function publishReleaseFiles({ projectRoot, releaseDirectory, files
   }
 }
 
-export async function writeReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates }: { projectRoot: string; artifact: string; config: any; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string; gates?: ReleaseGateSummary }) {
+export async function writeReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates }: { projectRoot: string; artifact: string; config: ProjectConfig; target?: TargetDescriptor; targets?: readonly TargetDescriptor[]; signingKeyPath?: string; signingKeyId?: string; gates?: ReleaseGateSummary }) {
   const data = await renderReleaseProvenance({ projectRoot, artifact, config, target, targets, signingKeyPath, signingKeyId, gates });
   const path = join(dirname(artifact), `${basename(artifact)}.release.json`);
   const temporary = `${path}.tmp-${process.pid}`;

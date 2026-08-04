@@ -24,6 +24,12 @@ JavaScript 扩展、不会接收用户指定的核心目录，也不会分发 Se
   聊天记录报告。
 - 生成确定性归档、SHA-256 校验和、发布溯源文件，并可选用 Ed25519 签名溯源文件。
 
+## 支持的平台
+
+唯一受支持的执行环境是具有 POSIX shell 的 Linux，也是 CI 唯一覆盖的平台。macOS 在本地工具链
+自行满足要求时可能可以工作，但不属于受支持或测试的平台。Windows 不受支持：安装后的 `sealw`
+启动器有意使用 POSIX shell 脚本。
+
 ## 环境要求
 
 仓库的 [`.mise.toml`](.mise.toml) 固定了开发工具链：
@@ -133,9 +139,9 @@ mise exec -- npm ci
 mise exec -- npm run check
 ```
 
-`check` 会构建 CLI、检查源码格式、执行带覆盖率门槛的单元测试、运行 Go API scanner、
-要求受管核心集成测试，并执行全部示例。CI 还会安装 Noto CJK 字体和 `rsvg-convert`，
-以生成可复现的离线 PNG 报告。
+`check` 会构建 CLI、检查源码格式、对单元测试和受管核心集成测试统一执行覆盖率门槛、运行 Go
+API scanner、对实际打包并安装后的 npm CLI 做冒烟测试，并执行全部示例。CI 还会安装 Noto CJK
+字体和 `rsvg-convert`，以生成可复现的离线 PNG 报告。
 
 ## 许可证
 

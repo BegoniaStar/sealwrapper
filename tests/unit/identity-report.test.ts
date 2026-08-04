@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { resolveIdentities } from '../../src/identity.ts';
+import { limitedResponseBytes, resolveIdentities } from '../../src/identity.ts';
 import { writeScenarioReport } from '../../src/reports.ts';
 
 const transcript = {
@@ -68,6 +68,21 @@ test('public nickname is retained when the avatar endpoint is temporarily unavai
   assert.equal(resolved.transcript.messages[0].avatarData, undefined);
   assert.equal(resolved.identities['3909311212'].nickname, '昵称可用');
   assert.match(resolved.warnings.join('\n'), /avatar|public identity/i);
+});
+
+test('identity retrieval cancels an oversized stream before buffering further chunks', async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const response = new Response(new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+    },
+    cancel() { cancelled = true; },
+  }));
+  await assert.rejects(() => limitedResponseBytes(response, 3, 'avatar response'), /exceeds 3 byte limit/);
+  assert.equal(cancelled, true);
+  assert.equal(pulls, 1);
 });
 
 test('public nickname decoding preserves the GB18030 portrait response used by QQ', async (context) => {

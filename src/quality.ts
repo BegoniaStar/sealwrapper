@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
+import type { ProjectConfig } from './config.ts';
 import { SealwrapperError } from './errors.ts';
 
 async function collect(root: string, directory: string, matcher: (name: string) => boolean): Promise<string[]> {
@@ -37,11 +38,11 @@ function run(program: string, args: string[], cwd: string): Promise<void> {
  * on the target esbuild bundle for module and target validation, and runs the
  * project's real Node unit tests.
  */
-export async function runJsReleaseQualityGate(projectRoot: string, config: any) {
+export async function runJsReleaseQualityGate(projectRoot: string, config: Pick<ProjectConfig, 'build'>) {
   if (!config.build) return;
   const sourceFiles = await collect(projectRoot, join(projectRoot, 'src'), (name) => /\.(?:[cm]?js|tsx?)$/.test(name));
   if (sourceFiles.length === 0) throw new SealwrapperError('JS release gate requires at least one source file under src/', 1);
-  let esbuild: any;
+  let esbuild: typeof import('esbuild');
   try { esbuild = await import('esbuild'); } catch { throw new SealwrapperError('JS release gate requires the locked esbuild dependency; run npm ci', 3); }
   for (const file of sourceFiles) {
     const content = await readFile(file, 'utf8');
