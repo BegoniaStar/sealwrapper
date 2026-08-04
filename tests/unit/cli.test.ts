@@ -112,6 +112,12 @@ test('P2 CLI rejects invalid report controls before it accesses a managed core',
   await assert.rejects(() => runCli(['scenario', 'test', '--png'], { cwd: process.cwd(), write: () => {} }), /--png requires --render/);
 });
 
+test('repro verify builds the complete configured matrix twice without core access', async () => {
+  const lines: string[] = [];
+  await runCli(['repro', 'verify'], { cwd: join(process.cwd(), 'examples', '002-author-information'), write: (line) => lines.push(line) });
+  assert.match(lines.join('\n'), /Reproducible sealpack: sha256:/);
+});
+
 test('scenario test fails before core access when its scenario directory is empty', async () => {
   const destination = join(tmpdir(), `sealwrapper-empty-scenarios-${Date.now()}`);
   await mkdir(join(destination, 'tests', 'scenarios'), { recursive: true });

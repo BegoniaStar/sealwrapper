@@ -11,7 +11,7 @@ import {
   CommandLineParser,
 } from '@rushstack/ts-command-line';
 
-import { archiveSealpack, zipArchiveLimitsForCapabilities, type ZipArchiveLimits } from './archive.ts';
+import { archiveSealpack, createZipArchive, zipArchiveLimitsForCapabilities, type ZipArchiveLimits } from './archive.ts';
 import { auditApiContract, updateApiContract } from './api-contract.ts';
 import { invokeBridge } from './bridge.ts';
 import { configuredDefaultTarget, configuredTargetIds, loadProjectConfig } from './config.ts';
@@ -246,6 +246,19 @@ async function stageArchive(projectRoot: string, targetIdsToCheck?: readonly str
   return { config, staged, archive, limits };
 }
 
+async function verifyReproducibleArchive(projectRoot: string, options: CliOptions) {
+  const config = await loadProjectConfig(projectRoot);
+  const selectedTargetIds = configuredTargetIds(config);
+  const limits = await archiveLimits(projectRoot, selectedTargetIds);
+  const build = async () => createZipArchive((await stageSealpack({ root: projectRoot, config })).files, limits);
+  const first = await build();
+  const second = await build();
+  if (!first.equals(second)) throw new SealwrapperError('Reproducibility check failed: two clean staging builds produced different sealpack bytes', 1);
+  const sha256 = `sha256:${createHash('sha256').update(first).digest('hex')}`;
+  output(options, `Reproducible sealpack: ${sha256} (${selectedTargetIds.join(', ')})`);
+  return { sha256, bytes: first.length, targets: selectedTargetIds };
+}
+
 function printDiagnostics(options: CliOptions, result: any) {
   for (const diagnostic of result.diagnostics ?? []) output(options, `${diagnostic.severity.toUpperCase()} ${diagnostic.ruleId}${diagnostic.path ? ` ${diagnostic.path}` : ''}${diagnostic.line ? `:${diagnostic.line}:${diagnostic.column || 1}` : ''} ${diagnostic.message}`);
 }
@@ -399,6 +412,8 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
     output(options, `Plugin TypeScript check passed: ${id} (${relative(projectRoot, result.path)})`);
   }
   await runJsReleaseQualityGate(projectRoot, projectConfig);
+  options.progress?.update('Verifying reproducible release archive');
+  await verifyReproducibleArchive(projectRoot, options);
   options.progress?.update('Running release scenarios and snapshot gates');
   await scenarioTest(projectRoot, options, {
     render: false,
@@ -708,6 +723,13 @@ function makeReleaseVerifyAction(options: CliOptions): CallbackAction {
   });
 }
 
+function makeReproVerifyAction(options: CliOptions): CallbackAction {
+  const action = new CallbackAction('repro:verify', 'Verify a reproducible sealpack build.', 'Build the complete target matrix twice from clean staging snapshots and require byte-identical archives.');
+  return action.setHandler(async () => {
+    await withProgress(options.progress, 'Verifying reproducible archive', () => verifyReproducibleArchive(options.cwd, options), 'Reproducible archive verified');
+  });
+}
+
 async function updateLock(projectRoot: string, options: CliOptions, allowDirty: boolean, targetId?: string) {
   if (!allowDirty) {
     let status = '';
@@ -760,11 +782,12 @@ const groupedCommands: Readonly<Record<string, string>> = {
   'types update': 'types:update',
   'resource check': 'resource:check',
   'release verify': 'release:verify',
+  'repro verify': 'repro:verify',
   'scenario test': 'scenario:test',
   'lock update': 'lock:update',
 };
 
-const actionNames = new Set(['init', 'doctor', 'core:sync', 'core:verify', 'types:sync', 'types:verify', 'types:audit', 'types:update', 'typecheck', 'resource:check', 'test', 'scenario:test', 'watch', 'package', 'release:verify', 'lock:update']);
+const actionNames = new Set(['init', 'doctor', 'core:sync', 'core:verify', 'types:sync', 'types:verify', 'types:audit', 'types:update', 'typecheck', 'resource:check', 'test', 'scenario:test', 'watch', 'package', 'release:verify', 'repro:verify', 'lock:update']);
 
 /**
  * RushStack models actions as one token.  Normalize the historical two-token
@@ -867,6 +890,7 @@ function createCommandLine(options: CliOptions): CommandLineParser {
   parser.addAction(makeWatchAction(options));
   parser.addAction(makePackageAction(options));
   parser.addAction(makeReleaseVerifyAction(options));
+  parser.addAction(makeReproVerifyAction(options));
   parser.addAction(makeLockUpdateAction(options));
   return parser;
 }
