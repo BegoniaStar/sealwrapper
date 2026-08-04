@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { SealwrapperError } from './errors.ts';
 import { invokeBridge } from './bridge.ts';
 import { loadSealLock, lockedTarget, lockDefaultTarget, type LockedTarget } from './lock.ts';
+import { syncReleaseArtifact, verifyReleaseArtifact } from './release-artifact.ts';
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,7 +38,7 @@ function corePaths(projectRoot: string, targetId: string) {
   const root = resolve(projectRoot);
   const seal = join(root, '.seal');
   const base = join(seal, 'core', targetId);
-  return { projectRoot: root, seal, base, mirror: join(base, 'mirror.git'), worktree: join(base, 'worktree'), state: join(base, 'state.json'), targetId };
+  return { projectRoot: root, seal, base, mirror: join(base, 'mirror.git'), worktree: join(base, 'worktree'), artifact: join(base, `sealdice-core_${targetId}_linux_amd64.tar.gz`), state: join(base, 'state.json'), targetId };
 }
 
 function isWithin(root: string, candidate: string): boolean {
@@ -226,6 +227,8 @@ export async function coreSync(projectRoot: string, { targetId, offline = false 
   await assertManagedPath(paths.seal, paths.projectRoot);
   await assertManagedPath(paths.base, paths.projectRoot);
   const mirror = await ensureMirror(paths, target.core, offline);
+  await assertManagedPath(paths.artifact, paths.projectRoot);
+  const artifact = await syncReleaseArtifact({ directory: paths.base, core: target.core, offline });
   await removeGeneratedWorktree(paths);
   await assertManagedPath(paths.worktree, paths.projectRoot);
   await checked('git', ['-C', paths.mirror, 'worktree', 'add', '--detach', paths.worktree, target.core.commit]);
@@ -239,7 +242,7 @@ export async function coreSync(projectRoot: string, { targetId, offline = false 
   const bridge = await invokeBridge({ worktree: paths.worktree, target, operation: 'capabilities' });
   if (!bridge.ok) throw new SealwrapperError('Bridge capability self-check returned diagnostics', 3);
   await assertManagedPath(paths.state, paths.projectRoot);
-  await writeFile(paths.state, `${JSON.stringify({ target: selectedTargetId, mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, overlayDigest: target.testOverlay.digest, protocol: target.testOverlay.protocol, capabilitiesSha256: target.testOverlay.capabilitiesSha256 }, null, 2)}\n`, 'utf8');
+  await writeFile(paths.state, `${JSON.stringify({ target: selectedTargetId, mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, releaseArtifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes }, overlayDigest: target.testOverlay.digest, protocol: target.testOverlay.protocol, capabilitiesSha256: target.testOverlay.capabilitiesSha256 }, null, 2)}\n`, 'utf8');
   return coreVerify(projectRoot, { targetId: selectedTargetId });
 }
 
@@ -421,12 +424,14 @@ export async function coreVerify(projectRoot: string, { targetId }: { targetId?:
   await assertManagedPath(paths.base, paths.projectRoot);
   await assertManagedPath(paths.mirror, paths.projectRoot);
   await assertManagedPath(paths.worktree, paths.projectRoot);
+  await assertManagedPath(paths.artifact, paths.projectRoot);
   await assertManagedPath(paths.state, paths.projectRoot);
-  if (!(await present(paths.mirror)) || !(await present(paths.worktree)) || !(await present(paths.state))) throw new SealwrapperError('Managed core worktree is missing; run sealwrapper core sync', 3);
+  if (!(await present(paths.mirror)) || !(await present(paths.worktree)) || !(await present(paths.artifact)) || !(await present(paths.state))) throw new SealwrapperError('Managed core worktree or pinned release artifact is missing; run sealwrapper core sync', 3);
   await assertDirectory(paths.base, 'Managed core directory');
   await assertDirectory(paths.mirror, 'Managed core mirror');
   await assertDirectory(paths.worktree, 'Managed core worktree');
   await assertRegularFile(paths.state, 'Managed core state');
+  const artifact = await verifyReleaseArtifact(paths.artifact, target.core);
   await verifyMirrorLayout(paths);
   await verifyWorktreeGitLayout(paths);
   await verifyWorktreeSymlinks(paths.worktree);
@@ -469,6 +474,6 @@ export async function coreVerify(projectRoot: string, { targetId }: { targetId?:
     throw new SealwrapperError(`Managed core state is not valid JSON: ${error?.message ?? error}`, 3);
   }
   if (!state || typeof state !== 'object' || Array.isArray(state)) throw new SealwrapperError('Managed core state must be a JSON object', 3);
-  if (state.target !== selectedTargetId || state.baseCommit !== target.core.commit || state.runtimeVersion !== target.core.runtimeVersion || state.overlayDigest !== target.testOverlay.digest || state.capabilitiesSha256 !== target.testOverlay.capabilitiesSha256 || !target.core.mirrors.includes(state.mirror)) throw new SealwrapperError('Managed core state does not match seal.lock', 3);
-  return { target: selectedTargetId, worktree: paths.worktree, remote, mirror: state.mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, overlay: { id: target.testOverlay.id, digest: target.testOverlay.digest, protocol: target.testOverlay.protocol, patches: target.testOverlay.patches, capabilitiesSha256: target.testOverlay.capabilitiesSha256 } };
+  if (state.target !== selectedTargetId || state.baseCommit !== target.core.commit || state.runtimeVersion !== target.core.runtimeVersion || state.releaseArtifact?.path !== paths.artifact || state.releaseArtifact?.sha256 !== artifact.sha256 || state.releaseArtifact?.bytes !== artifact.bytes || state.overlayDigest !== target.testOverlay.digest || state.capabilitiesSha256 !== target.testOverlay.capabilitiesSha256 || !target.core.mirrors.includes(state.mirror)) throw new SealwrapperError('Managed core state does not match seal.lock', 3);
+  return { target: selectedTargetId, worktree: paths.worktree, remote, mirror: state.mirror, baseCommit: target.core.commit, runtimeVersion: target.core.runtimeVersion, sourceDeclaredVersion: target.core.sourceDeclaredVersion, releaseArtifact: artifact, overlay: { id: target.testOverlay.id, digest: target.testOverlay.digest, protocol: target.testOverlay.protocol, patches: target.testOverlay.patches, capabilitiesSha256: target.testOverlay.capabilitiesSha256 } };
 }
