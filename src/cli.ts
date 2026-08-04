@@ -96,6 +96,52 @@ function isWithin(root: string, candidate: string): boolean {
   return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child));
 }
 
+const watchRootFiles = new Set(['seal.config.json', 'README.md', 'package.json', 'package-lock.json', 'tsconfig.json']);
+
+function isWatchInput(filename: string | Buffer | null): boolean {
+  // An omitted filename is permitted by fs.watch. Rebuild conservatively: the
+  // caller explicitly asked for a persistent development loop, and serving a
+  // stale archive is worse than one extra local build.
+  if (filename === null) return true;
+  const path = filename.toString().replaceAll('\\', '/');
+  if (!path || path.startsWith('.seal/') || path.startsWith('release/') || path.startsWith('.git/') || path.startsWith('node_modules/')) return false;
+  return watchRootFiles.has(path) || ['src/', 'content/', 'assets/'].some((prefix) => path.startsWith(prefix));
+}
+
+/** Coalesce bursty filesystem events while preserving at least one rebuild
+ * after an event that arrives during an active build. */
+export function createDirtyRebuilder(rebuild: () => Promise<void>, delayMilliseconds = 100): { notify(): void; stop(): void } {
+  let busy = false, dirty = false, stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  const flush = async () => {
+    if (busy || stopped || !dirty) return;
+    busy = true;
+    try {
+      do {
+        dirty = false;
+        await rebuild();
+      } while (dirty && !stopped);
+    } finally {
+      busy = false;
+    }
+  };
+  return {
+    notify() {
+      if (stopped) return;
+      dirty = true;
+      if (busy) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = undefined; void flush(); }, delayMilliseconds);
+      timer.unref();
+    },
+    stop() {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
 /** Scenario packages are external bridge inputs, so they must be regular
  * project files rather than a symlink that can redirect the bridge elsewhere. */
 async function resolveScenarioArchive(projectRoot: string, item: string): Promise<string> {
@@ -247,16 +293,18 @@ async function watchProject(projectRoot: string, options: CliOptions, watchOptio
   };
   await rebuild();
   if (watchOptions.once) return;
-  output(options, 'Watching src/; press Ctrl-C to stop. This does not reload a SealDice host.');
+  output(options, 'Watching project build inputs; press Ctrl-C to stop. This does not reload a SealDice host.');
   await new Promise<void>((resolvePromise, reject) => {
-    let busy = false;
-    const watcher = watchFs(join(projectRoot, 'src'), { recursive: true }, () => {
-      if (busy) return;
-      busy = true;
-      void rebuild().catch((error) => output(options, `Watch build failed: ${(error as Error).message}`)).finally(() => { busy = false; });
+    const rebuilder = createDirtyRebuilder(async () => {
+      try { await rebuild(); }
+      catch (error) { output(options, `Watch build failed: ${(error as Error).message}`); }
     });
-    watcher.once('error', reject);
-    process.once('SIGINT', () => { watcher.close(); resolvePromise(); });
+    const watcher = watchFs(projectRoot, { recursive: true }, (_eventType, filename) => {
+      if (isWatchInput(filename)) rebuilder.notify();
+    });
+    const onSigint = () => { watcher.close(); rebuilder.stop(); process.off('SIGINT', onSigint); resolvePromise(); };
+    watcher.once('error', (error) => { rebuilder.stop(); process.off('SIGINT', onSigint); reject(error); });
+    process.once('SIGINT', onSigint);
   });
 }
 
