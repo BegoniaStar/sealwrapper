@@ -26,6 +26,8 @@
 | --- | --- |
 | `mise exec -- npm test` | Node 单元测试，包括 CLI、配置、归档、类型、报告与发布。 |
 | `mise exec -- npm run test:api-scanner` | Go AST scanner 自身。 |
+| `mise exec -- npm run audit:dependencies` | 审计所有锁定 npm 依赖，并阻断 high/critical 漏洞。 |
+| `mise exec -- npm run audit:signatures` | 验证已安装 npm 依赖的 registry 签名。 |
 | `mise exec -- npm run test:integration:required` | lock 指定核心构建的 bridge 与真实资源/重载路径。 |
 | `mise exec -- npm run test:examples` | 每个示例的 core/types、项目单测、资源和 release 场景/离线报告。 |
 | `mise exec -- npm run check` | build、lint、覆盖率、scanner、必需 integration 和全部示例的总门禁。 |

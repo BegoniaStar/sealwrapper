@@ -17,6 +17,7 @@
 
 - [类型契约维护](type-contract.md)：Go AST inventory、语义声明、审计和受控更新。
 - [实现与测试映射](implementation-map.md)：从功能需求定位到源码模块和回归层。
+- [安全与维护](security-and-maintenance.md)：依赖审计、CodeQL、仓库 ruleset 与发布安全设置。
 
 ## 阅读约定
 

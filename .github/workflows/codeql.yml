@@ -1,0 +1,62 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 3"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  analyze:
+    # Private repositories require GitHub Code Security. Keep the workflow
+    # versioned and opt in only after that entitlement is enabled.
+    if: ${{ vars.ENABLE_CODEQL == 'true' }}
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: go
+            build-mode: manual
+
+    steps:
+      - name: Check out source
+        # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install pinned toolchain
+        # v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac
+        with:
+          install: true
+          cache: true
+
+      - name: Initialize CodeQL
+        # v4
+        uses: github/codeql-action/init@24c7eb380a2dc368f2d129e4c65e51d172983a1e
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Install locked Node dependencies
+        run: mise exec -- npm ci
+
+      - name: Build Go scanner for analysis
+        if: ${{ matrix.language == 'go' }}
+        run: mise exec -- go build ./tools/seal-api-scan
+
+      - name: Analyze
+        # v4
+        uses: github/codeql-action/analyze@24c7eb380a2dc368f2d129e4c65e51d172983a1e

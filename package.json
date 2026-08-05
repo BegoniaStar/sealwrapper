@@ -25,7 +25,7 @@
     "test:coverage": "SEALWRAPPER_CORE_INTEGRATION=1 SEALWRAPPER_REQUIRE_CORE_INTEGRATION=1 node --experimental-strip-types --experimental-test-coverage --test-coverage-exclude='dist/**' --test-coverage-lines=80 --test-coverage-branches=70 --test-coverage-functions=80 --test tests/unit/*.test.ts tests/integration/*.test.ts",
     "test:integration": "node --experimental-strip-types --test tests/integration/*.test.ts",
     "test:integration:required": "SEALWRAPPER_CORE_INTEGRATION=1 SEALWRAPPER_REQUIRE_CORE_INTEGRATION=1 npm run test:integration",
-    "test:api-scanner": "cd tools/seal-api-scan && go test ./...",
+    "test:api-scanner": "cd tools/seal-api-scan && go test -cover ./...",
     "test:examples": "node --experimental-strip-types tools/test-examples.ts",
     "test:examples:offline": "node --experimental-strip-types tools/test-examples.ts --offline",
     "test:package": "node tools/test-package.mjs",
@@ -36,7 +36,9 @@
     "release:prepare": "node tools/prepare-release.mjs",
     "lint": "node --experimental-strip-types tools/lint.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run build && npm run lint && npm run test:coverage && npm run test:api-scanner && npm run test:package && npm run test:release && npm run test:examples"
+    "audit:dependencies": "env -u NPM_CONFIG_ALLOW_SCRIPTS -u npm_config_allow_scripts npm audit --audit-level=high",
+    "audit:signatures": "env -u NPM_CONFIG_ALLOW_SCRIPTS -u npm_config_allow_scripts npm audit signatures",
+    "check": "npm run build && npm run lint && npm run audit:dependencies && npm run audit:signatures && npm run test:coverage && npm run test:api-scanner && npm run test:package && npm run test:release && npm run test:examples"
   },
   "dependencies": {
     "@rushstack/ts-command-line": "5.3.12",

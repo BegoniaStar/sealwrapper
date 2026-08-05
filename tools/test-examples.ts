@@ -1,15 +1,17 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
 
 import { configuredTargetIds, validateProjectConfig } from '../src/config.ts';
+import { runProcess } from '../src/process.ts';
 
 type RunResult = { code: number };
 
 const toolRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const examplesRoot = join(toolRoot, 'examples');
 const cliPath = join(toolRoot, 'src', 'cli.ts');
+const exampleCommandTimeoutMilliseconds = 300_000;
+const exampleCommandOutputBytes = 8 * 1024 * 1024;
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -24,15 +26,17 @@ async function run(projectRoot: string, args: string[], planOnly: boolean): Prom
   const label = relative(toolRoot, projectRoot) || '.';
   process.stdout.write(`[examples] ${label}: sealw ${args.join(' ')}\n`);
   if (planOnly) return { code: 0 };
-  return await new Promise<RunResult>((resolvePromise, reject) => {
-    const child = spawn(process.execPath, ['--experimental-strip-types', cliPath, ...args], {
-      cwd: projectRoot,
-      env: process.env,
-      stdio: 'inherit',
-    });
-    child.once('error', reject);
-    child.once('close', (code) => resolvePromise({ code: code ?? 1 }));
-  });
+  let result;
+  try {
+    result = await runProcess(process.execPath, ['--experimental-strip-types', cliPath, ...args], { cwd: projectRoot, timeoutMs: exampleCommandTimeoutMilliseconds, maxOutputBytes: exampleCommandOutputBytes });
+  } catch (error) {
+    throw new Error(`${label}: sealw ${args.join(' ')} could not start: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (result.timedOut) throw new Error(`${label}: sealw ${args.join(' ')} timed out after ${exampleCommandTimeoutMilliseconds}ms`);
+  if (result.outputExceeded) throw new Error(`${label}: sealw ${args.join(' ')} exceeded the ${exampleCommandOutputBytes} byte output limit`);
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  return { code: result.code };
 }
 
 async function runRequired(projectRoot: string, args: string[], planOnly: boolean) {
@@ -96,11 +100,16 @@ async function main() {
       const label = relative(toolRoot, projectRoot);
       process.stdout.write(`[examples] ${label}: node --test ${tests.map((path) => relative(projectRoot, path)).join(' ')}\n`);
       if (!planOnly) {
-        const result = await new Promise<RunResult>((resolvePromise, reject) => {
-          const child = spawn(process.execPath, ['--experimental-strip-types', '--test', ...tests], { cwd: projectRoot, env: process.env, stdio: 'inherit' });
-          child.once('error', reject);
-          child.once('close', (code) => resolvePromise({ code: code ?? 1 }));
-        });
+        let result;
+        try {
+          result = await runProcess(process.execPath, ['--experimental-strip-types', '--test', ...tests], { cwd: projectRoot, timeoutMs: exampleCommandTimeoutMilliseconds, maxOutputBytes: exampleCommandOutputBytes });
+        } catch (error) {
+          throw new Error(`${label} unit tests could not start: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (result.timedOut) throw new Error(`${label} unit tests timed out after ${exampleCommandTimeoutMilliseconds}ms`);
+        if (result.outputExceeded) throw new Error(`${label} unit tests exceeded the ${exampleCommandOutputBytes} byte output limit`);
+        if (result.stdout) process.stdout.write(result.stdout);
+        if (result.stderr) process.stderr.write(result.stderr);
         if (result.code !== 0) throw new Error(`${label} unit tests failed`);
       }
     }

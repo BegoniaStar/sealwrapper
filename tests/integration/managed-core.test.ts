@@ -41,7 +41,7 @@ async function helpdocXlsx(headers: string[]) {
   ]);
 }
 
-test('managed exact core performs strict validation and real install-enable-reload', async (t) => {
+test('managed exact core performs strict validation and real install-enable-reload', { timeout: 900_000 }, async (t) => {
   if (process.env.SEALWRAPPER_CORE_INTEGRATION !== '1') {
     if (process.env.CI === 'true' || process.env.SEALWRAPPER_REQUIRE_CORE_INTEGRATION === '1') throw new Error('source-core integration is required; set SEALWRAPPER_CORE_INTEGRATION=1 with Go 1.25.0');
     return t.skip('set SEALWRAPPER_CORE_INTEGRATION=1 with Go 1.25.0 to run source-core integration');
@@ -49,10 +49,19 @@ test('managed exact core performs strict validation and real install-enable-relo
   const go = (await execFileAsync('go', ['version'])).stdout;
   if (!go.includes('go1.25.0 ')) return t.skip(`requires Go 1.25.0, found ${go.trim()}`);
   const root = await mkdtemp(join(tmpdir(), 'sealwrapper-managed-core-'));
-  await Promise.all([mkdir(join(root, 'content', 'decks'), { recursive: true }), mkdir(join(root, 'content', 'reply'), { recursive: true }), mkdir(join(root, 'content', 'helpdoc'), { recursive: true }), mkdir(join(root, 'content', 'templates'), { recursive: true })]);
+  await Promise.all([
+    mkdir(join(root, 'content', 'decks'), { recursive: true }),
+    mkdir(join(root, 'content', 'reply'), { recursive: true }),
+    mkdir(join(root, 'content', 'helpdoc'), { recursive: true }),
+    mkdir(join(root, 'content', 'templates'), { recursive: true }),
+    mkdir(join(root, 'tests', 'scenarios'), { recursive: true }),
+  ]);
   await writeFile(join(root, 'seal.config.json'), `${JSON.stringify(config(), null, 2)}\n`);
   await writeFile(join(root, 'seal.lock'), renderSealLock(pinnedTarget));
   await writeFile(join(root, 'README.md'), '# bridge fixture\n');
+  const releaseScenario = join(root, 'tests', 'scenarios', 'release.json');
+  await writeFile(releaseScenario, `${JSON.stringify({ release: true, title: 'empty release fixture', messages: [], expect: { noOutput: true } }, null, 2)}\n`);
+  await writeFile(`${releaseScenario}.snapshot.json`, '{\n  "messages": []\n}\n');
   await writeFile(join(root, 'content', 'decks', 'cards.json'), '{"fortune":["yes"]}\n');
   await writeFile(join(root, 'content', 'decks', 'cards.jsonc'), '// JSONC deck\n{"fortune-jsonc":["yes"]}\n');
   await writeFile(join(root, 'content', 'decks', 'cards.yaml'), 'name: YAML Deck\nfortune-yaml: [yes]\n');

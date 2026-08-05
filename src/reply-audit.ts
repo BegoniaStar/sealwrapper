@@ -1,15 +1,15 @@
-import { execFile, spawn } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 
 import { SealwrapperError } from './errors.ts';
 import { pinnedTarget, type TargetDescriptor } from './pinned-target.ts';
+import { runProcess, type ProcessResult } from './process.ts';
 
 const toolRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const scannerRoot = join(toolRoot, 'tools', 'seal-api-scan');
-const execFileAsync = promisify(execFile);
+const scannerTimeoutMilliseconds = 120_000;
+const scannerOutputLimitBytes = 8 * 1024 * 1024;
 
 export type ReplyGrammar = {
   condTypes: string[];
@@ -70,26 +70,27 @@ export function validateReplyGrammar(grammar: ReplyGrammarAudit): string[] {
   return compatibilityDifferences(grammar);
 }
 
-function runScanner(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn('go', ['run', '.', ...args], { cwd: scannerRoot, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '';
-    child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
-    child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('close', (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
-  });
+async function runScanner(args: string[]): Promise<ProcessResult> {
+  return await runProcess('go', ['run', '.', ...args], { cwd: scannerRoot, timeoutMs: scannerTimeoutMilliseconds, maxOutputBytes: scannerOutputLimitBytes });
+}
+
+function scannerFailure(label: string, result: ProcessResult): SealwrapperError | undefined {
+  if (result.timedOut) return new SealwrapperError(`${label} timed out after ${scannerTimeoutMilliseconds}ms`, 3);
+  if (result.outputExceeded) return new SealwrapperError(`${label} exceeded the ${scannerOutputLimitBytes} byte output limit`, 3);
+  return undefined;
 }
 
 async function assertPinnedGo(target: TargetDescriptor) {
-  let output: string;
+  let result: ProcessResult;
   try {
-    output = (await execFileAsync('go', ['version'])).stdout;
+    result = await runProcess('go', ['version'], { cwd: scannerRoot, timeoutMs: scannerTimeoutMilliseconds, maxOutputBytes: scannerOutputLimitBytes });
   } catch (error) {
-    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for reply grammar audit: ${(error as Error).message}`, 2);
+    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for reply grammar audit: ${error instanceof Error ? error.message : String(error)}`, 2);
   }
-  if (!output.includes(`go${target.testOverlay.goVersion} `)) {
-    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for reply grammar audit; found ${output.trim() || 'unavailable'}`, 2);
+  const failure = scannerFailure('Go version probe', result);
+  if (failure) throw failure;
+  if (result.code !== 0 || !result.stdout.includes(`go${target.testOverlay.goVersion} `)) {
+    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for reply grammar audit; found ${(result.stdout || result.stderr).trim() || 'unavailable'}`, 2);
   }
 }
 
@@ -115,6 +116,8 @@ export async function auditReplyGrammar(worktree: string, target: TargetDescript
   await assertPinnedGo(target);
   const overlay = await overlayPath(worktree, target);
   const result = await runScanner(['--core', worktree, '--reply-grammar', '--overlay', overlay]);
+  const failure = scannerFailure('Go reply grammar audit', result);
+  if (failure) throw failure;
   if (result.code !== 0) throw new SealwrapperError(`Go reply grammar audit failed:\n${(result.stderr || result.stdout).trim()}`, 3);
   let raw: unknown;
   try { raw = JSON.parse(result.stdout); } catch (error) { throw new SealwrapperError(`Go reply grammar scanner returned invalid JSON: ${(error as Error).message}`, 3); }

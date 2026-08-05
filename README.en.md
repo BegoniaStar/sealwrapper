@@ -153,9 +153,10 @@ mise exec -- npm ci
 mise exec -- npm run check
 ```
 
-`check` builds the CLI, lints source, measures unit and managed-core
-integration coverage together, runs the Go API scanner, smoke-tests the packed
-npm installation, and runs all examples.
+`check` builds the CLI, lints source and dangerous TypeScript/JavaScript
+constructs, audits npm vulnerabilities and registry signatures, measures unit
+and managed-core integration coverage together, runs the Go API scanner,
+smoke-tests the packed npm installation, and runs all examples.
 CI additionally installs Noto CJK fonts and `rsvg-convert` for reproducible
 offline PNG reports.
 

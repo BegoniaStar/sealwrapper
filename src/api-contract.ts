@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -9,6 +8,7 @@ import type * as TypeScript from 'typescript';
 import { canonicalJson } from './capabilities.ts';
 import { SealwrapperError } from './errors.ts';
 import { defaultTargetId, getTarget, hasTarget, type TargetDescriptor } from './pinned-target.ts';
+import { runProcess, type ProcessResult } from './process.ts';
 
 const require = createRequire(import.meta.url);
 const ts: typeof import('typescript') = require('typescript');
@@ -366,20 +366,27 @@ export async function loadApiContract(root = toolRoot, targetId = apiTarget): Pr
   return { declaration, inventory, report, semantic, template };
 }
 
-function run(program: string, args: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(program, args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '';
-    child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
-    child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('close', (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
-  });
+const scannerTimeoutMilliseconds = 120_000;
+const scannerOutputLimitBytes = 8 * 1024 * 1024;
+
+async function run(program: string, args: string[], cwd: string): Promise<ProcessResult> {
+  return await runProcess(program, args, { cwd, timeoutMs: scannerTimeoutMilliseconds, maxOutputBytes: scannerOutputLimitBytes });
 }
 
-async function requirePinnedGo(target: any) {
+function scannerFailure(label: string, result: ProcessResult): SealwrapperError | undefined {
+  if (result.timedOut) return new SealwrapperError(`${label} timed out after ${scannerTimeoutMilliseconds}ms`, 3);
+  if (result.outputExceeded) return new SealwrapperError(`${label} exceeded the ${scannerOutputLimitBytes} byte output limit`, 3);
+  return undefined;
+}
+
+async function requirePinnedGo(target: TargetDescriptor) {
   const version = await run('go', ['version'], toolRoot).catch(() => null);
-  if (!version || version.code !== 0 || !version.stdout.includes(`go${target.testOverlay.goVersion} `)) {
+  if (!version) {
+    throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for the API scanner`, 2);
+  }
+  const failure = scannerFailure('Go version probe', version);
+  if (failure) throw failure;
+  if (version.code !== 0 || !version.stdout.includes(`go${target.testOverlay.goVersion} `)) {
     throw new SealwrapperError(`Go ${target.testOverlay.goVersion} is required for the API scanner`, 2);
   }
 }
@@ -389,6 +396,8 @@ export async function scanManagedCoreApi(worktree: string, target: TargetDescrip
   await requirePinnedGo(target);
   const scanner = join(toolRoot, 'tools', 'seal-api-scan');
   const result = await run('go', ['run', '.', '--core', worktree], scanner);
+  const failure = scannerFailure('Go AST API scan', result);
+  if (failure) throw failure;
   if (result.code !== 0) throw new SealwrapperError(`Go AST API scan failed:\n${(result.stderr || result.stdout).trim()}`, 3);
   let raw: RawScanResult;
   try {

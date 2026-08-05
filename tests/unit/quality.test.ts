@@ -20,3 +20,14 @@ test('JS release quality gate parses TypeScript source with type annotations', a
   await writeFile(join(root, 'tests', 'unit', 'source.test.ts'), "import test from 'node:test';\ntest('source fixture', () => {});\n");
   await assert.doesNotReject(() => runJsReleaseQualityGate(root, config()));
 });
+
+test('JS release quality gate bounds a hanging author test', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sealwrapper-quality-timeout-'));
+  await Promise.all([mkdir(join(root, 'src'), { recursive: true }), mkdir(join(root, 'tests', 'unit'), { recursive: true })]);
+  await writeFile(join(root, 'src', 'index.ts'), 'export const answer = 42;\n');
+  await writeFile(join(root, 'tests', 'unit', 'hang.test.ts'), "import test from 'node:test';\ntest('hang', () => new Promise(() => setInterval(() => {}, 1_000)));\n");
+  await assert.rejects(
+    () => runJsReleaseQualityGate(root, config(), { testTimeoutMs: 200 }),
+    /JS release tests timed out|failed/,
+  );
+});

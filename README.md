@@ -139,9 +139,10 @@ mise exec -- npm ci
 mise exec -- npm run check
 ```
 
-`check` 会构建 CLI、检查源码格式、对单元测试和受管核心集成测试统一执行覆盖率门槛、运行 Go
-API scanner、对实际打包并安装后的 npm CLI 做冒烟测试，并执行全部示例。CI 还会安装 Noto CJK
-字体和 `rsvg-convert`，以生成可复现的离线 PNG 报告。
+`check` 会构建 CLI、检查源码格式与危险 TypeScript/JavaScript 结构、审计 npm 漏洞和 registry
+签名、对单元测试和受管核心集成测试统一执行覆盖率门槛、运行 Go API scanner、对实际打包并安装后
+的 npm CLI 做冒烟测试，并执行全部示例。CI 还会安装 Noto CJK 字体和 `rsvg-convert`，以生成可复现
+的离线 PNG 报告。仓库管理员设置见[安全与维护](docs/security-and-maintenance.md)。
 
 ## 许可证
 
