@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@rushstack/ts-command-line": "5.3.12",
-    "esbuild": "0.27.1",
+    "esbuild": "0.28.1",
     "ora": "9.4.1",
     "typescript": "^5.9.3"
   },
