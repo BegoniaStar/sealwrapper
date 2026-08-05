@@ -19,6 +19,7 @@ JavaScript 扩展、不会接收用户指定的核心目录，也不会分发 Se
 - 打包可选 JavaScript bundle，以及 `decks`、`reply`、`helpdoc`、`templates` 和
   `assets` 五类受支持内容。
 - 以目标专属的 `seal.*` 声明检查插件 TypeScript 代码。
+- 扫描源码和最终 bundle，阻止已知 Goja 不兼容的语法与内置特性。
 - 用受管核心完成严格资源检查和真实的 Install -> Enable -> Reload 冒烟测试。
 - 运行确定性的 fake-QQ 场景、快照、封闭 HTTP mock，以及离线 JSON/SVG/HTML/PNG
   聊天记录报告。
@@ -94,6 +95,7 @@ sealw package
 | 同步或验证受管核心 | `sealw core sync` / `sealw core verify` |
 | 同步或验证目标声明 | `sealw types sync` / `sealw types verify` |
 | 检查插件源码 | `sealw typecheck` |
+| 检查 Goja 兼容性 | `sealw goja scan` |
 | 构建并校验资源 | `sealw resource check` |
 | 在受管宿主中测试安装 | `sealw test` |
 | 运行 fake-QQ 场景 | `sealw scenario test` |

@@ -97,6 +97,17 @@ sealw resource check --sarif .seal/reports/resources.sarif
 未给 `--target` 时，资源检查会覆盖 `buildTarget` 中的每个目标。若同时给 `--sarif`，多目标
 输出会自动把目标 ID 加入文件名，防止报告相互覆盖。SARIF 路径必须是项目相对路径。
 
+## 4.5 Goja 兼容性扫描
+
+```sh
+sealw goja scan
+```
+
+该命令扫描源码和最终 bundle 中已知的 Goja 不兼容语法、全局对象、内置方法和正则特性。
+同一扫描也会在生成 staging archive 时自动执行，因此 `resource check`、场景测试、watch
+和 package 不会绕过它。扫描不能替代真实运行时场景；完整背景和 profile 更新流程见
+[Goja 兼容性扫描](goja-compatibility.md)。
+
 ## 5. 宿主冒烟测试
 
 ```sh

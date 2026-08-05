@@ -121,6 +121,7 @@ if (existing === null) seal.ext.register(extension);
 
 ```sh
 sealw typecheck
+sealw goja scan
 sealw resource check
 sealw test
 sealw scenario test --release
@@ -129,6 +130,7 @@ sealw scenario test --release
 各命令的职责不同：
 
 - `typecheck`：检查 `src/` 是否只调用当前目标公开的 `seal.*` API。
+- `goja scan`：扫描源码和最终 bundle 中已知的 Goja 不兼容特性。
 - `resource check`：先构建 staging archive，再由受管核心严格验证资源和 manifest。
 - `test`：在资源检查后执行 Install -> Enable -> Reload。
 - `scenario test`：每个场景都运行在连续、确定性 fake-QQ 会话中。

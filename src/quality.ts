@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 
 import type { ProjectConfig } from './config.ts';
 import { SealwrapperError } from './errors.ts';
+import { assertGojaEcmaTarget, scanGojaCompatibility } from './goja-compatibility.ts';
 import { runProcess } from './process.ts';
 
 const defaultQualityTestTimeoutMilliseconds = 300_000;
@@ -58,11 +59,12 @@ export type QualityGateOptions = {
  * The JS release gate deliberately has no formatter/linter dependency of its
  * own. It enforces deterministic text layout, parses every author source with
  * the locked esbuild parser (Node --check does not strip TypeScript), relies
- * on the target esbuild bundle for module and target validation, and runs the
- * project's real Node unit tests.
+ * on the target esbuild bundle for module and target validation, runs the
+ * Goja compatibility profile, and runs the project's real Node unit tests.
  */
 export async function runJsReleaseQualityGate(projectRoot: string, config: Pick<ProjectConfig, 'build'>, options: QualityGateOptions = {}) {
   if (!config.build) return;
+  assertGojaEcmaTarget(config.build.ecmaTarget);
   const testTimeoutMs = positiveSafeInteger(options.testTimeoutMs ?? defaultQualityTestTimeoutMilliseconds, 'Quality test timeout');
   const maxTestOutputBytes = positiveSafeInteger(options.maxTestOutputBytes ?? defaultQualityTestOutputBytes, 'Quality test output limit');
   const sourceFiles = await collect(projectRoot, join(projectRoot, 'src'), (name) => /\.(?:[cm]?js|tsx?)$/.test(name));
@@ -75,6 +77,10 @@ export async function runJsReleaseQualityGate(projectRoot: string, config: Pick<
     const loader = file.endsWith('.tsx') ? 'tsx' : /\.[cm]?ts$/.test(file) ? 'ts' : 'js';
     try { await esbuild.transform(content, { loader, sourcefile: relative(projectRoot, file), target: config.build.ecmaTarget }); }
     catch (error: unknown) { throw new SealwrapperError(`Source syntax gate failed for ${relative(projectRoot, file)}: ${error instanceof Error ? error.message : String(error)}`, 1); }
+    const compatibility = await scanGojaCompatibility(content, relative(projectRoot, file));
+    if (compatibility.length > 0) {
+      throw new SealwrapperError(`Goja compatibility scan failed:\n${compatibility.map((item) => `${item.file}:${item.line}:${item.column} ${item.ruleId}: ${item.message}`).join('\n')}`, 1);
+    }
   }
   const tests = await collect(projectRoot, join(projectRoot, 'tests', 'unit'), (name) => /\.test\.(?:[cm]?js|tsx?)$/.test(name));
   if (tests.length === 0) throw new SealwrapperError('JS release gate requires at least one tests/unit/*.test.{ts,js} file', 1);

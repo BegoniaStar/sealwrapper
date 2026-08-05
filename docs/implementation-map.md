@@ -13,6 +13,7 @@
 | 确定性 staging、bundle 边界、manifest 与 ZIP | `src/stage.ts`、`src/build.ts`、`src/archive.ts` | `tests/unit/config-stage.test.ts`、`tests/unit/archive.test.ts` |
 | lock、镜像、worktree、overlay 与工具链 | `src/lock.ts`、`src/trust.ts`、`src/core.ts` | `tests/unit/core.test.ts`、`tests/integration/core-bridge.test.ts` |
 | Bridge 资源检查和真实 Install -> Enable -> Reload | `src/bridge.ts`、`patches/sealdice-core/` | `tests/integration/managed-core.test.ts` |
+| Goja 兼容性 profile、源码/bundle 扫描 | `src/goja-compatibility.ts`、`src/build.ts`、`src/quality.ts` | `tests/unit/goja-compatibility.test.ts` |
 | fake-QQ、连续消息、CQ 分段、HTTP mock 和断言 | `src/scenario.ts`、bridge overlay | `tests/unit/p1-p2.test.ts`、示例场景 |
 | 身份缓存与 JSON/SVG/HTML/PNG 报告 | `src/identity.ts`、`src/renderer.ts`、`src/reports.ts`、`src/png.ts` | `tests/unit/identity-report.test.ts`、`tests/unit/renderer.test.ts`、`tests/unit/png.test.ts` |
 | SARIF、发布溯源、签名和安全发布 | `src/sarif.ts`、`src/release.ts` | `tests/unit/p1-p2.test.ts` |

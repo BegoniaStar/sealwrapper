@@ -11,6 +11,7 @@
 sealw core verify
 sealw types verify
 sealw typecheck
+sealw goja scan
 sealw resource check
 sealw test
 sealw scenario test --release --snapshot
@@ -47,10 +48,10 @@ sealw scenario test --target 1.6.0 --release --snapshot
 对每一个已选目标，`package` 会执行：
 
 1. 对 JavaScript 项目同步类型并运行 TypeScript 检查。
-2. 检查源码格式、用锁定 esbuild 解析源文件，并运行项目单元测试。
+2. 检查源码格式、用锁定 esbuild 解析源文件、运行 Goja 兼容性扫描，并运行项目单元测试。
 3. 从同一输入独立构建两次，要求完整矩阵的 archive 字节完全相同。
 4. 对每个目标运行全部标记为 `"release": true` 的场景，并比较其已提交快照。
-5. 构建受所有目标能力上限约束的 staging archive，检查资源和 manifest。
+5. 构建受所有目标能力上限约束的 staging archive，检查资源、manifest 和最终 bundle 的 Goja 兼容性。
 6. 用锁定 source-core compatibility 运行 Install -> Enable -> Reload。
 7. 检查 `release.artifactPolicy` 的禁止路径与扩展名。
 8. 生成确定性 archive、SHA-256 checksum 和发布溯源文件。
@@ -139,6 +140,7 @@ steps:
   - run: mise exec -- npx --no-install sealw core sync
   - run: mise exec -- npx --no-install sealw types verify
   - run: mise exec -- npx --no-install sealw typecheck
+  - run: mise exec -- npx --no-install sealw goja scan
   - run: mise exec -- npx --no-install sealw resource check
   - run: mise exec -- npx --no-install sealw scenario test --release --snapshot
   - run: mise exec -- npx --no-install sealw package

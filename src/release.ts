@@ -77,6 +77,7 @@ type LockBinding = { digest: string; lockVersion: number; registryVersion: numbe
 export type ReleaseGateSummary = {
   typecheckTargets: string[];
   quality: true;
+  gojaCompatibility: true;
   reproducibility: true;
   releaseScenarioSnapshots: { releaseOnly: true; targets: string[] };
   resourceChecks: string[];

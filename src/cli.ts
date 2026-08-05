@@ -14,9 +14,11 @@ import {
 import { archiveSealpack, createZipArchive, zipArchiveLimitsForCapabilities, type ZipArchiveLimits } from './archive.ts';
 import { auditApiContract, updateApiContract } from './api-contract.ts';
 import { invokeBridge } from './bridge.ts';
+import { buildBundle } from './build.ts';
 import { configuredDefaultTarget, configuredTargetIds, loadProjectConfig } from './config.ts';
 import { coreSync, coreVerify, diagnoseToolchain, toolchainError } from './core.ts';
 import { SealwrapperError } from './errors.ts';
+import { gojaCompatibilityProfile } from './goja-compatibility.ts';
 import { describeLockDiff, loadSealLock, lockedTarget, lockTargetIds, renderSealLock } from './lock.ts';
 import { defaultTargetId, getTarget, minimumTargetId, targetIds } from './pinned-target.ts';
 import { publishReleaseFiles, renderReleaseProvenance, verifyReleaseBundle } from './release.ts';
@@ -517,6 +519,7 @@ async function packageProject(projectRoot: string, options: CliOptions, packageO
       gates: {
         typecheckTargets: projectConfig.build ? selectedTargets : [],
         quality: true,
+        gojaCompatibility: true,
         reproducibility: true,
         releaseScenarioSnapshots: { releaseOnly: true, targets: selectedTargets },
         resourceChecks: checkedTargets.map((checked) => checked.targetId),
@@ -679,6 +682,19 @@ function makeTypecheckAction(options: CliOptions): CallbackAction {
     if (!config.build) throw new SealwrapperError('typecheck is available only to projects with a JS bundle', 2);
     const result = await typecheckProject(options.cwd, target.value);
     output(options, `Plugin TypeScript check passed: ${relative(options.cwd, result.path)}`);
+  });
+}
+
+function makeGojaScanAction(options: CliOptions): CallbackAction {
+  const action = new CallbackAction('goja:scan', 'Scan a JavaScript bundle for Goja incompatibilities.', 'Build the final bundle and reject syntax or built-in features outside the locked Goja compatibility profile. Runtime behaviour still requires scenario tests.');
+  const target = defineTarget(action);
+  return action.setHandler(async () => {
+    const config = await loadProjectConfig(options.cwd);
+    if (!config.build) throw new SealwrapperError('goja scan is available only to projects with a JS bundle', 2);
+    const selectedTarget = target.value ?? configuredDefaultTarget(config);
+    if (selectedTarget !== gojaCompatibilityProfile.targetId) throw new SealwrapperError(`No Goja compatibility profile is registered for target ${selectedTarget}`, 2);
+    await buildBundle(options.cwd, config);
+    output(options, `Goja compatibility scan passed: ${gojaCompatibilityProfile.id} (Test262 ${gojaCompatibilityProfile.test262Commit})`);
   });
 }
 
@@ -853,6 +869,7 @@ const groupedCommands: Readonly<Record<string, string>> = {
   'types verify': 'types:verify',
   'types audit': 'types:audit',
   'types update': 'types:update',
+  'goja scan': 'goja:scan',
   'resource check': 'resource:check',
   'release verify': 'release:verify',
   'repro verify': 'repro:verify',
@@ -860,7 +877,7 @@ const groupedCommands: Readonly<Record<string, string>> = {
   'lock update': 'lock:update',
 };
 
-const actionNames = new Set(['init', 'doctor', 'core:sync', 'core:verify', 'types:sync', 'types:verify', 'types:audit', 'types:update', 'typecheck', 'resource:check', 'test', 'scenario:test', 'watch', 'package', 'release:verify', 'repro:verify', 'lock:update']);
+const actionNames = new Set(['init', 'doctor', 'core:sync', 'core:verify', 'types:sync', 'types:verify', 'types:audit', 'types:update', 'typecheck', 'goja:scan', 'resource:check', 'test', 'scenario:test', 'watch', 'package', 'release:verify', 'repro:verify', 'lock:update']);
 
 /**
  * RushStack models actions as one token.  Normalize the historical two-token
@@ -957,6 +974,7 @@ function createCommandLine(options: CliOptions): CommandLineParser {
   parser.addAction(makeTypesAuditAction(options));
   parser.addAction(makeTypesUpdateAction(options));
   parser.addAction(makeTypecheckAction(options));
+  parser.addAction(makeGojaScanAction(options));
   parser.addAction(makeResourceCheckAction(options));
   parser.addAction(makeTestAction(options));
   parser.addAction(makeScenarioAction(options));

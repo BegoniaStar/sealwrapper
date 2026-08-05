@@ -20,6 +20,7 @@ user-supplied core checkout, or bundle the SealDice core, bridge, or validator.
 - Stages optional JavaScript bundles and the supported content roots:
   `decks`, `reply`, `helpdoc`, `templates`, and `assets`.
 - Typechecks plugin source against the target-specific `seal.*` declaration.
+- Scans source and the final bundle for known Goja-incompatible syntax and built-ins.
 - Performs strict resource validation and a real Install -> Enable -> Reload
   smoke test through the managed core.
 - Runs deterministic fake-QQ scenarios, snapshots, hermetic HTTP mocks, and
@@ -103,6 +104,7 @@ complete first command and test.
 | Fetch or verify the managed host core | `sealw core sync` / `sealw core verify` |
 | Refresh or verify host declarations | `sealw types sync` / `sealw types verify` |
 | Check plugin source | `sealw typecheck` |
+| Check Goja compatibility | `sealw goja scan` |
 | Build and validate package resources | `sealw resource check` |
 | Test installation in the managed host | `sealw test` |
 | Run fake-QQ scenarios | `sealw scenario test` |

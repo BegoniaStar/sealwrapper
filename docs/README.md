@@ -11,7 +11,8 @@
 3. [开发与测试](development-and-testing.md)：同步核心和类型、资源检查、冒烟测试、SARIF
    与本地 watch。
 4. [场景与报告](scenario-testing.md)：fake-QQ 输入、断言、快照、网络 mock 和离线报告。
-5. [发布与 CI](release-and-ci.md)：发布门禁、校验和、溯源、签名和自动化验证。
+5. [Goja 兼容性扫描](goja-compatibility.md)：锁定的 Test262 基线、静态扫描和运行时边界。
+6. [发布与 CI](release-and-ci.md)：发布门禁、校验和、溯源、签名和自动化验证。
 
 ## 维护者路线
 

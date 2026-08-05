@@ -1,9 +1,10 @@
 import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Plugin } from 'esbuild';
 
 import type { ProjectConfig } from './config.ts';
 import { SealwrapperError } from './errors.ts';
+import { assertGojaCompatibility, assertGojaEcmaTarget } from './goja-compatibility.ts';
 
 /**
  * esbuild follows imports (including symlinks) while resolving a bundle.  A
@@ -73,6 +74,7 @@ function boundaryPlugin(projectRoot: string): Plugin {
 
 export async function buildBundle(root: string, config: ProjectConfig): Promise<Buffer> {
   if (!config.build || !config.sealpack.contents.scripts) throw new SealwrapperError('This project does not declare a JS bundle');
+  assertGojaEcmaTarget(config.build.ecmaTarget);
   let projectRoot: string;
   try {
     projectRoot = await realpath(resolve(root));
@@ -124,5 +126,10 @@ export async function buildBundle(root: string, config: ProjectConfig): Promise<
     '// ==/UserScript==',
     '',
   ].join('\n');
-  return Buffer.concat([Buffer.from(header, 'utf8'), Buffer.from(output.contents)]);
+  const bundle = Buffer.concat([Buffer.from(header, 'utf8'), Buffer.from(output.contents)]);
+  // The host is Goja rather than a generic ES6 browser. Scan the generated
+  // bytes as well as author sources so bundled dependencies and esbuild
+  // helpers cannot introduce a blacklisted runtime feature.
+  await assertGojaCompatibility(bundle.toString('utf8'), join(root, 'scripts', config.build.bundleFileName), root);
+  return bundle;
 }
