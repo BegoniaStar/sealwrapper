@@ -144,6 +144,8 @@ test('optional JS bundle is staged only inside scripts with a generated userscri
   const bundle = staged.files.find((file) => file.path === 'scripts/fixture.js')?.data.toString('utf8') ?? '';
   assert.match(bundle, /^\/\/ ==UserScript==/);
   assert.match(bundle, /Resource Fixture/);
+  assert.match(bundle, /console\.log\(42\)/);
+  assert.doesNotMatch(bundle, /const answer/);
   assert.match(staged.manifest, /scripts = \["scripts\/fixture\.js"\]/);
   assert.doesNotMatch(staged.manifest, /scripts = \["scripts\/\*\*"\]/);
 });

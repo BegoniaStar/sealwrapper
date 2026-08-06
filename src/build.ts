@@ -97,7 +97,7 @@ export async function buildBundle(root: string, config: ProjectConfig): Promise<
       bundle: true,
       entryPoints: [entry],
       format: 'iife',
-      minify: false,
+      minify: true,
       platform: 'neutral',
       sourcemap: false,
       target: config.build.ecmaTarget,
