@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { configuredTargetIds, validateProjectConfig } from '../src/config.ts';
+import { assertNpmReleaseMetadata, validateNpmProject } from '../src/npm-project.ts';
 import { runProcess } from '../src/process.ts';
 
 type RunResult = { code: number };
@@ -85,6 +86,7 @@ async function main() {
   let completed = 0;
   for (const projectRoot of chosen) {
     const config = validateProjectConfig(JSON.parse(await readFile(join(projectRoot, 'seal.config.json'), 'utf8')));
+    assertNpmReleaseMetadata(await validateNpmProject(projectRoot), config);
     const targets = configuredTargetIds(config);
     for (const target of targets) {
       if (offline) await runRequired(projectRoot, ['core', 'verify', '--target', target], planOnly);

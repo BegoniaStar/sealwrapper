@@ -1,0 +1,10 @@
+{
+  "name": "adventure-prompts",
+  "version": "1.0.0",
+  "description": "自动回复和 JS 指令共享的城市冒险 JSON 牌堆。",
+  "author": "Sealwrapper 示例",
+  "homepage": "https://github.com/BegoniaStar/sealwrapper/tree/main/examples/adventure-prompts",
+  "private": true,
+  "type": "module",
+  "license": "MIT"
+}

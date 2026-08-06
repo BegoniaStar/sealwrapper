@@ -1,0 +1,10 @@
+{
+  "name": "006-deck-and-template",
+  "version": "1.0.0",
+  "description": "通过 .drawpc 抽取本包 JSON 调查员牌堆。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

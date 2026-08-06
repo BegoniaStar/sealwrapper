@@ -102,6 +102,39 @@ JavaScript UserScript metadata header；不要在 `src/` 中再维护一份会�
 这个边界。`package.json` 可以保留给项目测试依赖，但如果它存在，项目必须同时提交
 `package-lock.json`；两者都不会进入最终 `.sealpack`。
 
+## npm 项目契约与发布元数据
+
+`package.json` 只管理 Node 开发环境，`seal.config.json` 才定义最终 Sealpack；两者不能
+互相替代。只要项目包含 `package.json`，sealwrapper 会在 staging 前验证：
+
+- `package-lock.json` 同时存在，且是 lockfile v3；
+- lockfile 顶层及 `packages[""]` 的 `name`、`version` 与 `package.json` 相同；
+- 根包的 `dependencies`、`devDependencies`、`optionalDependencies`、`peerDependencies` 和
+  `peerDependenciesMeta` 与 lockfile 完全相同；
+- 若写出 `packageManager`，它必须是规范的 `npm@<semver>`。
+
+这会检测手改 `package.json` 后忘记更新 lockfile 的情况；实际安装树仍应由 CI 中的
+`npm ci` 物化和验证。孤立的 `package-lock.json` 同样会失败。
+
+在 `sealw package` 发布前，npm manifest 中重复的发布元数据必须严格等于
+`seal.config.json.package`：`version`、`description`、`homepage`、`license` 和作者列表。
+作者在 npm manifest 中使用首位 `author` 加其余 `contributors` 表示，顺序必须与
+`package.authors` 一致：
+
+```json
+{
+  "author": "First Author",
+  "contributors": ["Second Author"],
+  "description": "Same release description as seal.config.json",
+  "homepage": "https://example.invalid/project",
+  "license": "MIT"
+}
+```
+
+不要把多位作者合并到一个以顿号分隔的 `author` 字符串。`package.json.name`、
+`seal.config.json.package.name` 和 `sealpack.packageId` 分别是 npm 技术名、商店展示名与
+Sealpack ID，因此不要求相同。
+
 ## 目标矩阵与 `seal.lock`
 
 ```json

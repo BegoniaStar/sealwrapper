@@ -174,10 +174,10 @@ test('a project package manifest requires its npm lockfile but is never staged i
   await writeFile(join(root, 'content/decks', 'cards.json'), '{"cards":["yes"]}\n');
   await writeFile(join(root, 'content/reply', 'reply.yaml'), 'enable: true\nitems: []\n');
   await writeFile(join(root, 'assets', 'icon.txt'), 'icon\n');
-  await writeFile(join(root, 'package.json'), '{"name":"fixture"}\n');
+  await writeFile(join(root, 'package.json'), '{"name":"fixture","version":"1.2.3"}\n');
   const config = await loadProjectConfig(root);
   await assert.rejects(() => stageSealpack({ root, config, target: '1.6.0' }), /package-lock/);
-  await writeFile(join(root, 'package-lock.json'), '{"lockfileVersion":3}\n');
+  await writeFile(join(root, 'package-lock.json'), '{"name":"fixture","version":"1.2.3","lockfileVersion":3,"packages":{"":{"name":"fixture","version":"1.2.3"}}}\n');
   const staged = await stageSealpack({ root, config, target: '1.6.0' });
   assert.ok(!staged.files.some((file) => file.path === 'package.json' || file.path === 'package-lock.json'));
 });

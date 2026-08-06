@@ -1,0 +1,10 @@
+{
+  "name": "002-author-information",
+  "version": "1.0.0",
+  "description": "最小 SealDice 扩展示例：包元信息由 seal.config.json 生成。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

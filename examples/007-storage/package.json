@@ -1,0 +1,10 @@
+{
+  "name": "007-storage",
+  "version": "1.0.0",
+  "description": "通过 .投喂 保存并读取扩展私有记录。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

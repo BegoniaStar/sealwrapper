@@ -1,0 +1,10 @@
+{
+  "name": "sealdice-lightscriptloader",
+  "version": "1.0.0",
+  "description": "海豹骰上的回雪插件兼容加载器。",
+  "author": "BegoniaHe",
+  "homepage": "https://github.com/BegoniaHe/sealdice-LightScriptLoader",
+  "private": true,
+  "type": "module",
+  "license": "MIT"
+}

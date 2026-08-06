@@ -1,0 +1,10 @@
+{
+  "name": "012-custom-coc-rule",
+  "version": "1.0.0",
+  "description": "注册 index 20、key 为“测试”的自定义 COC 检定规则。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

@@ -20,6 +20,7 @@ import { coreSync, coreVerify, diagnoseToolchain, toolchainError } from './core.
 import { SealwrapperError } from './errors.ts';
 import { gojaCompatibilityProfile } from './goja-compatibility.ts';
 import { describeLockDiff, loadSealLock, lockedTarget, lockTargetIds, renderSealLock } from './lock.ts';
+import { assertNpmReleaseMetadata, validateNpmProject } from './npm-project.ts';
 import { defaultTargetId, getTarget, minimumTargetId, targetIds } from './pinned-target.ts';
 import { publishReleaseFiles, renderReleaseProvenance, verifyReleaseBundle } from './release.ts';
 import { auditReplyGrammar } from './reply-audit.ts';
@@ -461,6 +462,7 @@ function artifactViolations(files: { path: string }[], policy: any): string[] {
 async function packageProject(projectRoot: string, options: CliOptions, packageOptions: PackageOptions = {}) {
   options.progress?.update('Preparing release gates');
   const projectConfig = await loadProjectConfig(projectRoot);
+  assertNpmReleaseMetadata(await validateNpmProject(projectRoot), projectConfig);
   const selectedTargets = configuredTargetIds(projectConfig);
   if (selectedTargets.length === 0) throw new SealwrapperError('No build targets are configured', 2);
   if (projectConfig.build) for (const id of selectedTargets) {

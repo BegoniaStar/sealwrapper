@@ -52,6 +52,11 @@ function string(value: unknown, label: string, allowEmpty = false): string {
   return value;
 }
 
+export function isCanonicalSemanticVersion(value: string): boolean {
+  const semver = semverPattern.exec(value);
+  return Boolean(semver && !(semver[4]?.split('.').some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'))));
+}
+
 function boolean(value: unknown, label: string): boolean {
   invariant(typeof value === 'boolean', `${label} must be a boolean`);
   return value;
@@ -76,8 +81,7 @@ function verifyMetadata(config: JsonRecord) {
   onlyKeys(metadata, 'package', ['name', 'version', 'authors', 'license', 'description', 'homepage']);
   string(metadata.name, 'package.name');
   const version = string(metadata.version, 'package.version');
-  const semver = semverPattern.exec(version);
-  invariant(semver && !(semver[4]?.split('.').some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith('0'))), 'package.version must be canonical semantic version');
+  invariant(isCanonicalSemanticVersion(version), 'package.version must be canonical semantic version');
   const authors = array(metadata.authors, 'package.authors');
   invariant(authors.length > 0 && authors.every((author) => typeof author === 'string' && author.length > 0), 'package.authors must contain at least one non-empty string');
   for (const [index, author] of authors.entries()) string(author, `package.authors[${index}]`);

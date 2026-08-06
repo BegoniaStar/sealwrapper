@@ -1,0 +1,10 @@
+{
+  "name": "011-network-request",
+  "version": "1.0.0",
+  "description": "在 .musicsearch 中向授权音乐搜索 API 发起请求。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

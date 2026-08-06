@@ -1,0 +1,10 @@
+{
+  "name": "010-delegated-roll",
+  "version": "1.0.0",
+  "description": "启用 allowDelegate 的 .catch 代骰指令。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

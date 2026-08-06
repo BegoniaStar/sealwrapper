@@ -1,0 +1,10 @@
+{
+  "name": "004-custom-command",
+  "version": "1.0.0",
+  "description": "注册 .seal 指令并读取可选名字。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0"
+}

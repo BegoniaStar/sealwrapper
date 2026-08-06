@@ -4,6 +4,7 @@ import { join, posix, relative, resolve } from 'node:path';
 import { buildBundle } from './build.ts';
 import { configuredTargetIds, type ProjectConfig, type SealpackContents } from './config.ts';
 import { invariant, SealwrapperError } from './errors.ts';
+import { validateNpmProject } from './npm-project.ts';
 
 export type StagedFile = { path: string; data: Buffer };
 export type StagedSealpack = { files: StagedFile[]; manifest: string; packageId: string; version: string };
@@ -107,7 +108,7 @@ function manifestFor(config: ProjectConfig, staged: Map<string, Buffer>): string
 
 export async function stageSealpack({ root, config, target }: { root: string; config: ProjectConfig; target?: string }): Promise<StagedSealpack> {
   if (target !== undefined) invariant(configuredTargetIds(config).includes(target), `Target ${target} is not selected by sealDice.buildTarget`);
-  if (await exists(join(root, 'package.json')) && !(await exists(join(root, 'package-lock.json')))) throw new SealwrapperError('package.json requires a committed package-lock.json');
+  await validateNpmProject(root);
   const files = new Map<string, Buffer>();
   const readme = resolve(root, config.sealpack.readme);
   if (!readme.startsWith(`${resolve(root)}/`)) throw new SealwrapperError('sealpack.readme escapes project root');

@@ -1,0 +1,10 @@
+{
+  "name": "013-custom-trpg-rule",
+  "version": "1.0.0",
+  "description": "注册摸鱼大赛角色卡模板与 .fish 指令。",
+  "author": "木落",
+  "homepage": "https://github.com/sealdice/javascript",
+  "private": true,
+  "type": "module",
+  "license": "MIT"
+}
