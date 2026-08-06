@@ -339,7 +339,17 @@ async function scenarioFiles(projectRoot: string): Promise<string[]> {
   let entries: any[];
   try { entries = await readdir(directory, { withFileTypes: true }); } catch { throw new SealwrapperError('No scenario files found under tests/scenarios', 2); }
   for (const entry of entries) if (entry.isSymbolicLink()) throw new SealwrapperError(`Scenario directory must not contain symbolic links: ${entry.name}`, 2);
-  const files = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.json')).map((entry) => join(directory, entry.name)).sort((left, right) => Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')));
+  const files = entries
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith('.json') &&
+        !entry.name.endsWith('.snapshot.json'),
+    )
+    .map((entry) => join(directory, entry.name))
+    .sort((left, right) =>
+      Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')),
+    );
   if (files.length === 0) throw new SealwrapperError('No scenario files found under tests/scenarios', 2);
   return files;
 }
